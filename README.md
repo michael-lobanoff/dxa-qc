@@ -50,6 +50,7 @@ DICOM → чтение и нормализация → область (позв�
 | [docs/user_guide.md](docs/user_guide.md) | руководство пользователя: запуск, чтение отчёта и картинок, что означает каждое нарушение |
 | [docs/deployment.md](docs/deployment.md) | развёртывание: сборка образа, переменные окружения, безопасность, типовые проблемы |
 | [docs/training.md](docs/training.md) | обучение и дообучение моделей на новых данных |
+| [docs/presentation.md](docs/presentation.md) | текст слайдов и сценарий демонстрации |
 | [docs/night_report.md](docs/night_report.md) | отчёт по экспериментам: что пробовали, что сработало, что нет |
 | [docs/annotation_scheme.md](docs/annotation_scheme.md) | схема разметки ключевых точек |
 
