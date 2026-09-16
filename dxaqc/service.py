@@ -52,11 +52,17 @@ class QCService:
 
     def analyse(self, img, mm_per_px=None):
         """mm_per_px: pixel size of this image (see pixels.pixel_spacing_mm); None = the export default."""
+        ok, why, stats = self.region.check(img)
+        if not ok:
+            # Not a DXA spine / proximal femur: refuse instead of inventing a quality verdict.
+            return {"region": None, "unsupported": True, "reason": why, "checks": stats,
+                    "points": {}, "measurements": {}, "probs": {}, "violations": [], "score": None,
+                    "implant": False, "quality_class": 0, "mm_per_px": mm_per_px}
         region, region_conf = self.region.predict(img)
         region = str(region)
         points, conf = self.detector(img, region)
         out = {"region": region, "region_conf": region_conf, "points": points, "point_conf": conf,
-               "mm_per_px": mm_per_px}
+               "mm_per_px": mm_per_px, "unsupported": False, "checks": stats}
         if region == "spine":
             meas = spine_measurements(img, points, conf, mm_per_px)
         else:
@@ -98,6 +104,13 @@ class QCService:
             r = self.analyse(img, mm)
             row["mm_per_px"] = round(mm, 4)
             row["mm_per_px_source"] = mm_src
+            if r.get("unsupported"):
+                row.update(anatomical_region="не определена", quality_class=0,
+                           violation_type=f"оценка не проводится: {r['reason']}", violation_codes="unsupported",
+                           details="; ".join(f"{k} {v:.2f}" for k, v in r["checks"].items()),
+                           processing_status="Success")
+                row["time_of_processing"] = round(time.time() - t0, 3)
+                return row
             row["anatomical_region"] = REGION_RU[r["region"]]
             if r["implant"]:
                 row.update(quality_class=0, violation_type="эндопротез: оценка качества не проводится", violation_codes="implant")

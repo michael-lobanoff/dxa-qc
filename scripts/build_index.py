@@ -17,9 +17,9 @@ from dxaqc.pixels import pixel_spacing_mm
 LABEL_COLS = ["n", "study", "sp_pos", "sp_axis", "sp_artifact", "rh_posrot", "rh_roi",
               "lh_posrot", "lh_roi", "y_spine", "y_rhip", "y_lhip", "comment"]
 REGION_LABELS = {
-    "spine": {"y": "y_spine", "v_pos": "sp_pos", "v_axis": "sp_axis", "v_artifact": "sp_artifact"},
-    "hip_right": {"y": "y_rhip", "v_posrot": "rh_posrot", "v_roi": "rh_roi"},
-    "hip_left": {"y": "y_lhip", "v_posrot": "lh_posrot", "v_roi": "lh_roi"},
+    "spine": {"y_reported": "y_spine", "v_pos": "sp_pos", "v_axis": "sp_axis", "v_artifact": "sp_artifact"},
+    "hip_right": {"y_reported": "y_rhip", "v_posrot": "rh_posrot", "v_roi": "rh_roi"},
+    "hip_left": {"y_reported": "y_lhip", "v_posrot": "lh_posrot", "v_roi": "lh_roi"},
 }
 METAL_FRACTION = 0.015  # share of saturated pixels; implants ~0.018-0.12, normal hips <0.012
 
@@ -76,6 +76,13 @@ def main():
         lab = labels.loc[study]
         for key, col in REGION_LABELS[region].items():
             row[key] = lab[col]
+        # The organisers confirmed that the aggregate "good/bad" column of their sheet has mistakes and
+        # that the per-violation columns are the reliable ones, so the image label is their OR. This
+        # flips three spine rows: a fracture marked bad by type but good in total, and two scoliosis
+        # rows marked bad in total with no violation type (scoliosis is not a positioning violation).
+        types = [k for k in REGION_LABELS[region] if k.startswith("v_")]
+        vals = [row[k] for k in types]
+        row["y"] = float(max(vals)) if all(pd.notna(v) for v in vals) else float("nan")
         row["comment"] = lab["comment"]
         rows.append(row)
 

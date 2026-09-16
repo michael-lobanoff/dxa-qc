@@ -114,3 +114,28 @@ def test_vertebrae_pitch_is_anatomical(service):
     assert v is not None and 4 <= v["n"] <= 8
     assert 26 <= v["pitch_px"] * 0.603 <= 40
     assert np.all(np.diff([p[1] for p in v["points"]]) > 0)   # ordered top to bottom
+
+
+def test_refuses_foreign_images(service, tmp_path):
+    """A blank frame, noise and a rotated scan are refused instead of getting a quality verdict."""
+    import numpy as np
+
+    rng = np.random.default_rng(0)
+    base = pydicom.dcmread(SAMPLES[0]).pixel_array
+    cases = {"blank": np.full(base.shape, 40, np.uint8),
+             "noise": rng.integers(0, 255, base.shape, dtype=np.uint8),
+             "rot90": np.ascontiguousarray(np.rot90(base)).astype(np.uint8)}
+    for name, arr in cases.items():
+        path = _variant(SAMPLES[0], tmp_path, f"{name}.dcm",
+                        lambda ds, a=arr: (setattr(ds, "PixelData", np.ascontiguousarray(a).tobytes()),
+                                           setattr(ds, "Rows", a.shape[0]), setattr(ds, "Columns", a.shape[1])))
+        row = service.process_file(path)
+        assert row["processing_status"] == "Success", name
+        assert row["violation_codes"] == "unsupported", (name, row["violation_codes"])
+        assert row["quality_class"] == 0 and row["anatomical_region"] == "не определена"
+
+
+def test_real_scans_are_not_refused(service):
+    """The guard must not reject the organisers' own samples."""
+    for path in SAMPLES:
+        assert service.process_file(path)["violation_codes"] != "unsupported", path.name

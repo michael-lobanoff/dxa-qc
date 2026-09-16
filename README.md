@@ -21,6 +21,10 @@ DICOM → чтение и нормализация → область (позв�
 | Поля вокруг области интереса бедра | расстояния от головки и малого вертела до краёв кадра, мм |
 | Позиционирование / ротация бедра | HOG-признаки выровненного по точкам участка + случайный лес |
 
+Перед оценкой снимок проверяется на «свой/чужой»: пустой кадр, нерентгеновское изображение и снимок,
+не похожий на денситометрию позвоночника или бедра, получают `quality_class 0`, код `unsupported`
+и причину отказа вместо выдуманного вердикта (`dxaqc/region.py`). На 252 обучающих снимках отказов нет.
+
 Каждый тип — маленькая монотонная модель по 1–3 измерениям с калибровкой и собственным порогом.
 
 ### Рабочая точка
@@ -47,7 +51,7 @@ dxaqc/            пакет сервиса
   api.py          HTTP API (FastAPI)
   visualize.py    визуализация нарушения: PNG + DICOM Secondary Capture
   sr.py           текстовый отчёт о нарушениях: DICOM Basic Text SR
-  region.py       классификатор области по содержимому
+  region.py       классификатор области + проверка «свой/чужой» снимок
   kpmodel.py      сеть ключевых точек, аугментации, декодирование
   detector.py     обёртка для инференса точек
   geometry.py     правила по точкам (наклон, поля, охват)
@@ -125,7 +129,7 @@ CSV (UTF-8 с BOM) и XLSX, одна строка на изображение:
 | processing_status | Success / Failure |
 | time_of_processing | секунды |
 | quality_score | вероятность нарушения (для ROC-AUC) |
-| violation_codes | коды нарушений (v_axis, v_pos, v_artifact, v_roi, v_posrot, implant) |
+| violation_codes | коды нарушений (v_axis, v_pos, v_artifact, v_roi, v_posrot, implant, unsupported) |
 | details | измерения: наклон оси, охват в позвонках, поля кадра в мм; пометка о наиболее вероятном типе |
 | mm_per_px, mm_per_px_source | размер пикселя и откуда он взят (`ExposedArea` / `default`) |
 | error | текст ошибки для Failure |
@@ -142,6 +146,7 @@ CSV (UTF-8 с BOM) и XLSX, одна строка на изображение:
 
 ```bash
 python scripts/build_index.py                    # индекс снимков и меток, дедупликация
+python scripts/train_region.py                   # классификатор области + проверка «свой/чужой»
 python scripts/train_keypoints.py --region spine # CV + финальная модель точек
 python scripts/train_keypoints.py --region hip
 python scripts/fit_decision.py                   # решающий слой на OOF-признаках
