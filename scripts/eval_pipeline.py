@@ -19,8 +19,7 @@ from sklearn.preprocessing import StandardScaler
 
 from dxaqc.decision import TYPES, Monotone, sensitivity_threshold, spine_measurements
 from dxaqc.features import hip_features
-from dxaqc.hipcrop import hip_crop
-from dxaqc.hog import hog
+from dxaqc.hipcrop import hip_crop, rotation_features
 
 
 def spacing(idx, i):
@@ -88,8 +87,8 @@ def main():
                       "isch_conf": oof[i]["conf"]["isch"], "gt_conf": oof[i]["conf"]["gt_lat"]})
     H = pd.DataFrame(Hrows, index=hp).astype(float)
     H = H.fillna(H.median())
-    hog_man = np.stack([hog(hip_crop(img(i), kp[i]["points"], i[4:])[0], 16) for i in hp])
-    hog_det = np.stack([hog(hip_crop(img(i), oof[i]["points"], i[4:])[0], 16) for i in hp])
+    hog_man = np.stack([rotation_features(hip_crop(img(i), kp[i]["points"], i[4:])[0]) for i in hp])
+    hog_det = np.stack([rotation_features(hip_crop(img(i), oof[i]["points"], i[4:])[0]) for i in hp])
 
     types = {"spine": TYPES["spine"], "hip": {"v_roi": TYPES["hip"]["v_roi"], "v_posrot": "rotation"}}
     report = {"types": {}, "regions": {}}
@@ -106,7 +105,7 @@ def main():
                     prob, dec = np.zeros(len(yv)), np.zeros(len(yv), bool)
                     for tr, va in StratifiedGroupKFold(5, shuffle=True, random_state=seed).split(hog_man, yv, groups):
                         rf = RandomForestClassifier(500, min_samples_leaf=3, max_features=0.1, class_weight="balanced_subsample", random_state=0, n_jobs=4)
-                        rf.fit(hog_man[tr], yv[tr])
+                        rf.fit(np.vstack([hog_man[tr], hog_det[tr]]), np.concatenate([yv[tr], yv[tr]]))
                         # threshold from inner out-of-bag-like estimate: fit on training crops placed by the detector
                         t = best_threshold(yv[tr], rf.predict_proba(hog_det[tr])[:, 1])
                         prob[va] = rf.predict_proba(hog_det[va])[:, 1]; dec[va] = prob[va] >= t

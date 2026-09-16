@@ -10,8 +10,7 @@ import pydicom
 
 from .decision import NAMES_RU, hip_measurements, spine_measurements
 from .detector import KeypointDetector
-from .hipcrop import hip_crop
-from .hog import hog
+from .hipcrop import hip_crop, rotation_features
 from .pixels import pixel_spacing_mm
 from .region import RegionClassifier
 
@@ -73,7 +72,7 @@ class QCService:
                 return out
             meas = hip_measurements(img, points, conf, region, mm_per_px)
             crop, _ = hip_crop(img, points, region)
-            meas["rotation"] = float(self.rotation.predict_proba(hog(crop, self.hog_cell)[None])[0, 1])
+            meas["rotation"] = float(self.rotation.predict_proba(rotation_features(crop)[None])[0, 1])
         model = self.decision["spine" if region == "spine" else "hip"]
         probs, decs, score = model.predict(meas)
         quality_class, violations = model.verdict(probs, decs, score, self.policy)

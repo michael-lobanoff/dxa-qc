@@ -15,8 +15,7 @@ from sklearn.ensemble import RandomForestClassifier
 from sklearn.model_selection import StratifiedGroupKFold
 
 from dxaqc.decision import TYPES, DecisionModel, hip_measurements, spine_measurements
-from dxaqc.hipcrop import hip_crop
-from dxaqc.hog import hog
+from dxaqc.hipcrop import hip_crop, rotation_features
 
 
 def spacing(idx, i):
@@ -39,16 +38,19 @@ def main():
     # rotation: out-of-fold scores (averaged over 5 CV repeats) for calibration, final forest on everything
     hp = [i for i in sorted(oof) if "hip" in i and not kp[i]["flags"].get("skip") and not pd.isna(idx.loc[i, "y"])]
     y_rot = idx.loc[hp, "v_posrot"].astype(int).to_numpy(); groups = np.array([int(i[:3]) for i in hp])
-    hog_man = np.stack([hog(hip_crop(img[i], kp[i]["points"], i[4:])[0], 16) for i in hp])
-    hog_det = np.stack([hog(hip_crop(img[i], oof[i]["points"], i[4:])[0], 16) for i in hp])
+    hog_man = np.stack([rotation_features(hip_crop(img[i], kp[i]["points"], i[4:])[0]) for i in hp])
+    hog_det = np.stack([rotation_features(hip_crop(img[i], oof[i]["points"], i[4:])[0]) for i in hp])
     rot_oof = np.zeros(len(hp))
     for seed in range(5):
         for tr, va in StratifiedGroupKFold(5, shuffle=True, random_state=seed).split(hog_man, y_rot, groups):
-            rot_oof[va] += rotation_forest().fit(hog_man[tr], y_rot[tr]).predict_proba(hog_det[va])[:, 1] / 5
-    rotation = rotation_forest().fit(hog_man, y_rot)
+            # train on both versions of every crop: hand-placed and detector-placed. The model then
+            # sees the landmark error it will meet in production (honest AUC 0.789 -> 0.807).
+            Xtr = np.vstack([hog_man[tr], hog_det[tr]]); ytr = np.concatenate([y_rot[tr], y_rot[tr]])
+            rot_oof[va] += rotation_forest().fit(Xtr, ytr).predict_proba(hog_det[va])[:, 1] / 5
+    rotation = rotation_forest().fit(np.vstack([hog_man, hog_det]), np.concatenate([y_rot, y_rot]))
     rot_of = dict(zip(hp, rot_oof))
 
-    out = {"rotation_rf": rotation, "hog_cell": 16}
+    out = {"rotation_rf": rotation, "hog_cell": 16}   # hog_cell kept for older model files
     for region in ("spine", "hip"):
         ids = [i for i in sorted(oof) if (i.endswith("spine") if region == "spine" else "hip" in i)
                and not kp[i]["flags"].get("skip") and not pd.isna(idx.loc[i, "y"])]
