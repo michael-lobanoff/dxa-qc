@@ -44,7 +44,7 @@ def spine_measurements(img, points, conf, mm_per_px=None):
 def hip_measurements(img, points, conf, side, mm_per_px=None):
     f = hip_features(points, img.shape, side, MM_PER_PX if mm_per_px is None else mm_per_px)
     return {"margin_bottom": f["margin_bottom"], "margin_top": f["margin_top"], "margin_lateral": f["margin_lateral"],
-            "lt_conf": conf.get("lt", 0.0)}
+            "shaft_angle": f.get("shaft_angle"), "lt_conf": conf.get("lt", 0.0)}
 
 
 def best_threshold(y, p):

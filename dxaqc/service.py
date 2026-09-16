@@ -130,8 +130,11 @@ class QCService:
                     row["details"] = "; ".join(bits)
                 else:
                     ru = {"top": "сверху", "bottom": "снизу", "lateral": "сбоку"}
-                    row["details"] = "; ".join(f"поле {ru[k]} {m[f'margin_{k}']:.0f} мм" for k in ("top", "bottom", "lateral")
-                                               if m.get(f"margin_{k}") is not None)
+                    bits = [f"поле {ru[k]} {m[f'margin_{k}']:.0f} мм" for k in ("top", "bottom", "lateral")
+                            if m.get(f"margin_{k}") is not None]
+                    if m.get("shaft_angle") is not None:
+                        bits.append(f"ось бедра {m['shaft_angle']:.0f}° к вертикали")
+                    row["details"] = "; ".join(bits)
                 if r.get("presumed"):
                     row["details"] = (row["details"] + "; " if row["details"] else "") + "тип указан как наиболее вероятный"
             row["processing_status"] = "Success"

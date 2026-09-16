@@ -24,6 +24,10 @@ def hip_features(p, shape, side, mm_per_px=None):
     f["lt_absent"] = float(q.get("lt") is None)
     f["missing"] = float(sum(q.get(k) is None for k in ("gt_top", "fn_c", "isch")))
     if sp and sd:
+        # ISCD / JNMT positioning guidance: the long axis of the femur should be parallel to the long
+        # axis of the table, i.e. vertical on the image. Reported as a measurement; on its own it
+        # separates rotation labels only weakly (AUC 0.67) and adds nothing to the rotation model.
+        f["shaft_angle"] = abs(math.degrees(math.atan2(sd[0] - sp[0], sd[1] - sp[1])))
         # the shaft axis runs downwards; medial side = right of the upward direction sd->sp
         if q.get("lt"):
             f["lt_protrusion"] = -_dist_to_line(q["lt"], sd, sp) * mm_per_px
