@@ -1,0 +1,116 @@
+"""Smoke tests for the QC service: organizer samples, odd DICOM encodings, broken inputs, reproducibility.
+
+Run: .venv/bin/python -m pytest -q tests  (needs the trained models in models/ and data/test_sample)
+"""
+from pathlib import Path
+
+import numpy as np
+import pydicom
+import pytest
+from pydicom.uid import ExplicitVRLittleEndian
+
+from dxaqc.service import QCService, read_dicom_image
+
+ROOT = Path(__file__).resolve().parents[1]
+SAMPLES = sorted((ROOT / "data/test_sample").glob("*.dcm"))
+EXPECTED_REGION = {"ПОП": "поясничный отдел позвоночника", "ППОБ": "проксимальный отдел правого бедра",
+                   "ЛПОБ": "проксимальный отдел левого бедра"}
+
+
+@pytest.fixture(scope="module")
+def service():
+    return QCService(ROOT / "models")
+
+
+def _variant(src, tmp_path, name, transform):
+    ds = pydicom.dcmread(src)
+    transform(ds)
+    ds.file_meta.TransferSyntaxUID = ExplicitVRLittleEndian
+    out = tmp_path / name
+    ds.save_as(out, enforce_file_format=True)
+    return out
+
+
+def test_organizer_samples_regions(service):
+    assert SAMPLES, "data/test_sample is missing"
+    for p in SAMPLES:
+        row = service.process_file(p)
+        assert row["processing_status"] == "Success", row["error"]
+        assert row["anatomical_region"] == EXPECTED_REGION[p.stem.split("_")[1]]
+        assert row["quality_class"] in (0, 1) and 0 <= row["quality_score"] <= 1
+        assert row["image_uid"] and row["study_uid"]
+
+
+def test_sixteen_bit_and_monochrome1_give_same_verdict(service, tmp_path):
+    src = SAMPLES[0]
+    base = service.process_file(src)
+
+    def to16(ds):
+        a = ds.pixel_array.astype(np.uint16) * 257
+        ds.BitsAllocated, ds.BitsStored, ds.HighBit = 16, 16, 15
+        ds.PixelData = a.tobytes()
+
+    def to_mono1(ds):
+        ds.PixelData = (255 - ds.pixel_array).astype(np.uint8).tobytes()
+        ds.PhotometricInterpretation = "MONOCHROME1"
+
+    for name, tr in (("x16.dcm", to16), ("mono1.dcm", to_mono1)):
+        p = _variant(src, tmp_path, name, tr)
+        img, _ = read_dicom_image(p)
+        assert img.dtype == np.uint8 and abs(float(img.mean()) - float(read_dicom_image(src)[0].mean())) < 3
+        row = service.process_file(p)
+        assert row["processing_status"] == "Success" and row["anatomical_region"] == base["anatomical_region"]
+        assert row["quality_class"] == base["quality_class"]
+
+
+@pytest.mark.parametrize("content", [b"", b"not a dicom at all" * 10, b"\0" * 128 + b"DICM" + b"\x02\x00" * 50])
+def test_broken_files_are_failures_not_crashes(service, tmp_path, content):
+    p = tmp_path / "broken.dcm"
+    p.write_bytes(content)
+    row = service.process_file(p)
+    assert row["processing_status"] == "Failure" and row["error"]
+
+
+def test_dicom_without_pixels_is_failure(service, tmp_path):
+    ds = pydicom.dcmread(SAMPLES[0])
+    del ds.PixelData
+    p = tmp_path / "nopixels.dcm"
+    ds.save_as(p, enforce_file_format=True)
+    assert service.process_file(p)["processing_status"] == "Failure"
+
+
+def test_reproducible(service):
+    a = [service.process_file(p) for p in SAMPLES]
+    b = [service.process_file(p) for p in SAMPLES]
+    for r1, r2 in zip(a, b):
+        assert (r1["quality_class"], r1["violation_codes"], r1["details"]) == (r2["quality_class"], r2["violation_codes"], r2["details"])
+        assert abs(r1["quality_score"] - r2["quality_score"]) < 1e-6
+
+
+def test_pixel_spacing_from_exposed_area():
+    """The pixel size comes from the DICOM Exposed Area tag, with a plausibility check (pixels.py)."""
+    import pydicom
+
+    from dxaqc.pixels import DEFAULT_MM_PER_PX, pixel_spacing_mm
+
+    ds = pydicom.Dataset()
+    ds.ExposedArea = [180, 175]
+    mm, src = pixel_spacing_mm(ds, (289, 300))
+    assert src == "ExposedArea" and abs(mm - 0.603) < 0.01
+    ds.ExposedArea = [520, 595]                      # whole scan table, repeated for every image
+    mm, src = pixel_spacing_mm(ds, (289, 300))
+    assert src == "default" and mm == DEFAULT_MM_PER_PX
+    assert pixel_spacing_mm(pydicom.Dataset(), (289, 300))[1] == "default"
+
+
+def test_vertebrae_pitch_is_anatomical(service):
+    """The vertebral train gives a plausible pitch (body + disc) on a real spine scan."""
+    from dxaqc.vertebrae import find
+
+    spine = next(p for p in SAMPLES if "ПОП" in p.name)
+    img, _ = read_dicom_image(spine)
+    points, _ = service.detector(img, "spine")
+    v = find(img, points, 0.603)
+    assert v is not None and 4 <= v["n"] <= 8
+    assert 26 <= v["pitch_px"] * 0.603 <= 40
+    assert np.all(np.diff([p[1] for p in v["points"]]) > 0)   # ordered top to bottom

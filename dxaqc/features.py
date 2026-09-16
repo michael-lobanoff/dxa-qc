@@ -1,0 +1,75 @@
+"""Measurements derived from anatomical keypoints (shared by evaluation, classifiers and the service)."""
+import math
+
+import numpy as np
+
+from . import geometry as G
+
+
+def _dist_to_line(p, a, b):
+    """Signed distance from p to the line a->b (positive to the right of the direction a->b)."""
+    (ax, ay), (bx, by) = a, b
+    return ((bx - ax) * (p[1] - ay) - (by - ay) * (p[0] - ax)) / max(math.hypot(bx - ax, by - ay), 1e-6)
+
+
+def hip_features(p, shape, side, mm_per_px=None):
+    """Positioning / rotation cues. Orientation is normalised so that +x points medially (towards the pelvis)."""
+    mm_per_px = G.MM_PER_PX if mm_per_px is None else mm_per_px
+    f = {}
+    m = G.hip_margins_mm(p, shape, side, mm_per_px)
+    f.update({f"margin_{k}": v for k, v in m.items()})
+    s = -1 if side == "hip_left" else 1
+    q = {k: (None if v is None else (s * v[0], v[1])) for k, v in p.items()}
+    sp, sd = q.get("shaft_p"), q.get("shaft_d")
+    f["lt_absent"] = float(q.get("lt") is None)
+    f["missing"] = float(sum(q.get(k) is None for k in ("gt_top", "fn_c", "isch")))
+    if sp and sd:
+        # the shaft axis runs downwards; medial side = right of the upward direction sd->sp
+        if q.get("lt"):
+            f["lt_protrusion"] = -_dist_to_line(q["lt"], sd, sp) * mm_per_px
+        if q.get("fh_c"):
+            f["neck_offset"] = -_dist_to_line(q["fh_c"], sd, sp) * mm_per_px   # femoral offset in projection
+        if q.get("fh_c") and q.get("fn_c"):
+            shaft = np.subtract(sp, sd); neck = np.subtract(q["fh_c"], q["fn_c"])
+            cos = np.dot(shaft, neck) / (np.linalg.norm(shaft) * np.linalg.norm(neck) + 1e-6)
+            f["neck_shaft_angle"] = 180 - math.degrees(math.acos(np.clip(cos, -1, 1)))
+    if q.get("fh_c") and q.get("gt_lat"):
+        f["head_gt_width"] = abs(q["fh_c"][0] - q["gt_lat"][0]) * mm_per_px
+    return f
+
+
+def spine_features(p, shape, mm_per_px=None):
+    r = G.spine_rules(p, shape, G.MM_PER_PX if mm_per_px is None else mm_per_px)
+    return {"abs_tilt": None if r["tilt_deg"] is None else abs(r["tilt_deg"]), "crests_missing": float(not r["crests_in_frame"]),
+            "span_mm": r["span_mm"]}
+
+
+def spine_curvature(img, points, window=60, mm_per_px=None):
+    """Largest lateral deviation (mm) of the spinal column centre from the straight col_top -> col_bottom line.
+
+    Positioning tilt rotates a straight column; scoliosis bends it. Experts flag only the former.
+    """
+    import cv2
+    from scipy.ndimage import median_filter
+
+    mm_per_px = G.MM_PER_PX if mm_per_px is None else mm_per_px
+    t, b = points.get("col_top"), points.get("col_bottom")
+    if not t or not b or b[1] - t[1] < 30:
+        return None
+    g = cv2.GaussianBlur(img.astype(np.float32), (0, 0), 3)
+    h, w = g.shape
+    ys = np.arange(int(max(t[1], 0)) + 5, int(min(b[1], h - 1)) - 5)
+    dev = []
+    for y in ys:
+        xl = t[0] + (b[0] - t[0]) * (y - t[1]) / (b[1] - t[1])
+        lo, hi = int(max(xl - window, 0)), int(min(xl + window, w - 1))
+        row = g[y, lo:hi + 1]
+        if row.size < 10:
+            continue
+        thr = np.percentile(row, 20) + 0.5 * (row.max() - np.percentile(row, 20))
+        on = np.where(row > thr)[0]
+        dev.append(lo + (on.min() + on.max()) / 2 - xl)
+    if len(dev) < 20:
+        return None
+    dev = median_filter(np.asarray(dev), size=15, mode="nearest")
+    return float(np.abs(dev).max() * mm_per_px)

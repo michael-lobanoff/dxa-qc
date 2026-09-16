@@ -1,0 +1,203 @@
+<!doctype html>
+<html lang="ru">
+<head>
+<meta charset="utf-8">
+<title>DXA — обзор разметки</title>
+<style>
+  :root { --bg:#111418; --panel:#1a1f26; --line:#2c343f; --text:#e6e9ee; --muted:#8a94a3; --acc:#4cc2ff; --ok:#5ad17a; --bad:#ff6b6b; --warn:#f0a030; }
+  * { box-sizing:border-box; }
+  body { margin:0; background:var(--bg); color:var(--text); font:14px/1.4 -apple-system,system-ui,sans-serif; }
+  header { position:sticky; top:0; z-index:5; display:flex; gap:12px; align-items:center; flex-wrap:wrap; padding:10px 14px; background:var(--panel); border-bottom:1px solid var(--line); }
+  header h1 { font-size:16px; margin:0 8px 0 0; }
+  select, input, button { background:#0d1014; color:var(--text); border:1px solid var(--line); border-radius:6px; padding:5px 8px; font:inherit; }
+  button { cursor:pointer; } button:hover { border-color:var(--acc); }
+  #count { color:var(--muted); margin-left:auto; }
+  .legend { color:var(--muted); font-size:12px; padding:6px 14px; border-bottom:1px solid var(--line); }
+  .grid { display:grid; grid-template-columns:repeat(auto-fill,minmax(210px,1fr)); gap:12px; padding:14px; }
+  .tile { background:var(--panel); border:2px solid var(--line); border-radius:8px; padding:6px; cursor:pointer; }
+  .tile:hover { border-color:var(--acc); } .tile.dis { border-color:var(--warn); }
+  .tile canvas { width:100%; display:block; border-radius:4px; background:#000; }
+  .id { font-weight:600; margin-top:4px; } .meta { color:var(--muted); font-size:12px; }
+  .chips { display:flex; flex-wrap:wrap; gap:4px; margin-top:4px; }
+  .chip { font-size:11px; padding:1px 6px; border-radius:8px; background:#2a323d; }
+  .chip.ok { color:var(--ok); } .chip.bad { color:var(--bad); } .chip.warn { color:#111; background:var(--warn); } .chip.u { color:var(--acc); }
+  #modal { position:fixed; inset:0; background:rgba(0,0,0,.85); display:flex; gap:16px; padding:20px; z-index:10; }
+  #modal[hidden] { display:none; }
+  #big { flex:1; display:flex; align-items:center; justify-content:center; min-width:0; } #big canvas { background:#000; max-width:100%; }
+  #side { width:360px; background:var(--panel); border:1px solid var(--line); border-radius:8px; padding:14px; overflow:auto; }
+  #side h2 { margin:0 0 8px; font-size:16px; } #side table { width:100%; border-collapse:collapse; font-size:13px; }
+  #side td { padding:3px 4px; border-bottom:1px solid var(--line); vertical-align:top; } #side td:first-child { color:var(--muted); }
+  .btns { display:flex; gap:8px; flex-wrap:wrap; margin:10px 0; } a { color:var(--acc); }
+  .keys { color:var(--muted); font-size:12px; margin-top:10px; }
+  @media (max-width: 900px) { #modal { flex-direction:column; } #side { width:auto; max-height:45vh; } }
+</style>
+</head>
+<body>
+<header>
+  <h1>Обзор разметки</h1>
+  <select id="fRegion"><option value="all">Все области</option><option value="spine">Позвоночник</option><option value="hip">Бёдра</option></select>
+  <select id="fMode">
+    <option value="all">Все снимки</option>
+    <option value="dis">Расхождения правил с экспертом</option>
+    <option value="bad">Нарушения по эксперту</option>
+    <option value="unsure">Помечены «сомневаюсь»</option>
+  </select>
+  <input id="fSearch" placeholder="поиск: 018, hip_left…" size="16">
+  <label><input type="checkbox" id="fContrast" checked> контраст</label>
+  <span id="count"></span>
+</header>
+<div class="legend">Предварительные правила по точкам: наклон оси &gt; 3.5° (в ТЗ 5°, но эксперты отмечают раньше) · таз: оба крыла в кадре · инородное тело: есть рамка ·
+поля бедра: сверху и снизу ≥ 30 мм, сбоку ≥ 20 мм (0.8 мм/пикс, оценка) · ротация: малый вертел не «норма» или структура вне кадра. Оранжевая рамка — правило расходится с экспертом.</div>
+<div class="grid" id="grid"></div>
+<div id="modal" hidden><div id="big"><canvas id="bigCanvas"></canvas></div><aside id="side"></aside></div>
+
+<script src="../../data/annotation/manifest.js"></script>
+<script src="../../data/annotation/review.js"></script>
+<script>
+const MM = 0.8, TILT_T = 3.5, LIMIT = {top: 30, bottom: 30, lateral: 20};
+const POINTS = {
+  spine: [['col_top','столб, верх'],['col_bottom','столб, уровень крыльев'],['crest_a','крыло слева'],['crest_b','крыло справа']],
+  hip: [['fh_c','центр головки'],['fh_top','верх головки'],['fn_c','центр шейки'],['gt_top','верх большого вертела'],['gt_lat','наружный край вертела'],
+        ['lt','малый вертел'],['isch','седалищная кость'],['shaft_p','диафиз под МВ'],['shaft_d','диафиз внизу']],
+};
+const COLORS = ['#4cc2ff','#5ad17a','#ffd84c','#ff9f4c','#ff6b6b','#c77dff','#4cffe0','#ff4cc2','#b0ff4c'];
+const LT = {'1':'не виден','2':'норма','3':'большой'};
+const NAMES = {v_axis:'ось', v_pos:'таз не в кадре', v_artifact:'инородное тело', v_posrot:'позиц./ротация', v_roi:'поля кадра'};
+const $ = id => document.getElementById(id);
+const kind = it => it.region === 'spine' ? 'spine' : 'hip';
+let ann = {}, items = [], shown = [], cur = -1;
+const imgs = {};
+
+const inside = (q, w, h) => !!q && q[0] >= 0 && q[0] < w && q[1] >= 0 && q[1] < h;
+function measure(it, r) {
+  const p = r.points || {}, m = {};
+  if (kind(it) === 'spine') {
+    const t = p.col_top, b = p.col_bottom;
+    m.tilt = t && b && b[1] - t[1] >= 1 ? Math.atan2(t[0] - b[0], b[1] - t[1]) * 180 / Math.PI : null;
+    m.crests = inside(p.crest_a, it.w, it.h) && inside(p.crest_b, it.w, it.h);
+    m.boxes = (r.boxes || []).length;
+    m.rule = {v_axis: m.tilt !== null && Math.abs(m.tilt) > TILT_T, v_pos: !m.crests, v_artifact: m.boxes > 0};
+  } else {
+    const low = p.lt || p.shaft_p;
+    m.margins = {
+      top: p.fh_top ? p.fh_top[1] * MM : null,
+      bottom: low ? (it.h - low[1]) * MM : null,
+      lateral: p.gt_lat ? (it.region === 'hip_right' ? p.gt_lat[0] : it.w - p.gt_lat[0]) * MM : null,
+    };
+    const short = Object.keys(LIMIT).filter(k => m.margins[k] === null || m.margins[k] < LIMIT[k]);
+    const missing = ['gt_top','fn_c','isch'].filter(k => !p[k]);
+    m.short = short; m.missing = missing;
+    m.rule = {v_roi: short.length > 0, v_posrot: (r.choice && r.choice !== '2') || missing.length > 0};
+  }
+  return m;
+}
+function verdicts(it) {
+  const lab = window.REVIEW[it.id] || {}, r = ann[it.id] || {points:{}}, m = measure(it, r);
+  const types = Object.keys(m.rule).filter(k => lab[k] !== null && lab[k] !== undefined);
+  const expertBad = types.filter(k => lab[k] === 1), ruleBad = types.filter(k => m.rule[k]);
+  const dis = types.filter(k => !!m.rule[k] !== (lab[k] === 1));
+  return {lab, r, m, types, expertBad, ruleBad, dis, skip: !!(r.flags || {}).skip};
+}
+function draw(canvas, it, width, labels) {
+  const im = imgs[it.id], r = ann[it.id] || {points:{}, boxes:[]}, s = width / it.w;
+  canvas.width = Math.round(it.w * s); canvas.height = Math.round(it.h * s);
+  const ctx = canvas.getContext('2d');
+  ctx.filter = $('fContrast').checked ? 'contrast(1.6) brightness(1.2)' : 'none';
+  if (im && im.complete) ctx.drawImage(im, 0, 0, canvas.width, canvas.height);
+  ctx.filter = 'none';
+  const p = r.points || {};
+  if (kind(it) === 'spine' && p.col_top && p.col_bottom) {
+    ctx.setLineDash([5, 4]); ctx.strokeStyle = 'rgba(76,194,255,.8)'; ctx.lineWidth = 1.5;
+    ctx.beginPath(); ctx.moveTo(p.col_top[0] * s, p.col_top[1] * s); ctx.lineTo(p.col_bottom[0] * s, p.col_bottom[1] * s); ctx.stroke(); ctx.setLineDash([]);
+  }
+  ctx.strokeStyle = '#ff4040'; ctx.lineWidth = 2;
+  for (const b of r.boxes || []) ctx.strokeRect(b[0] * s, b[1] * s, (b[2] - b[0]) * s, (b[3] - b[1]) * s);
+  POINTS[kind(it)].forEach(([k], i) => {
+    const v = p[k]; if (!v) return;
+    ctx.fillStyle = COLORS[i]; ctx.strokeStyle = '#000'; ctx.lineWidth = 1.5;
+    ctx.beginPath(); ctx.arc(v[0] * s, v[1] * s, labels ? 6 : 3.2, 0, 2 * Math.PI); ctx.fill(); ctx.stroke();
+    if (labels) { ctx.font = 'bold 13px sans-serif'; ctx.lineWidth = 3; ctx.strokeText(String(i + 1), v[0] * s + 8, v[1] * s - 6); ctx.fillText(String(i + 1), v[0] * s + 8, v[1] * s - 6); }
+  });
+}
+function fmt(x, d = 0) { return x === null || x === undefined ? '—' : x.toFixed(d); }
+function metaText(it, v) {
+  if (v.skip) return 'не размечается (протез)';
+  if (kind(it) === 'spine') return `наклон ${fmt(v.m.tilt, 1)}° · крылья ${v.m.crests ? '✓' : '✗'} · рамок ${v.m.boxes}`;
+  const g = v.m.margins; return `поля ${fmt(g.top)}/${fmt(g.bottom)}/${fmt(g.lateral)} мм · МВ: ${LT[v.r.choice] || '—'}`;
+}
+function chips(v) {
+  let h = '';
+  if (v.lab.y === null || v.lab.y === undefined) h += '<span class="chip">нет метки эксперта</span>';
+  else h += v.expertBad.length ? `<span class="chip bad">эксперт: ${v.expertBad.map(k => NAMES[k]).join(', ')}</span>` : `<span class="chip ok">эксперт: норма${v.lab.y === 1 ? ' (итог 1)' : ''}</span>`;
+  if (v.dis.length) h += `<span class="chip warn">расхождение: ${v.dis.map(k => NAMES[k]).join(', ')}</span>`;
+  if ((v.r.flags || {}).unsure) h += '<span class="chip u">сомневаюсь</span>';
+  return h;
+}
+function render() {
+  const reg = $('fRegion').value, mode = $('fMode').value, q = $('fSearch').value.trim().toLowerCase();
+  shown = items.filter(it => {
+    if (reg !== 'all' && kind(it) !== reg) return false;
+    if (q && !it.id.includes(q)) return false;
+    const v = verdicts(it);
+    if (mode === 'dis') return v.dis.length > 0;
+    if (mode === 'bad') return v.expertBad.length > 0 || v.lab.y === 1;
+    if (mode === 'unsure') return !!(v.r.flags || {}).unsure;
+    return true;
+  });
+  $('count').textContent = `показано ${shown.length} из ${items.length}`;
+  const grid = $('grid'); grid.innerHTML = '';
+  shown.forEach((it, i) => {
+    const v = verdicts(it), el = document.createElement('div');
+    el.className = 'tile' + (v.dis.length ? ' dis' : '');
+    el.innerHTML = `<canvas></canvas><div class="id">${it.id}</div><div class="meta">${metaText(it, v)}</div><div class="chips">${chips(v)}</div>`;
+    el.onclick = () => openModal(i);
+    grid.appendChild(el);
+    const c = el.querySelector('canvas');
+    if (imgs[it.id].complete) draw(c, it, 200, false); else imgs[it.id].addEventListener('load', () => draw(c, it, 200, false), {once: true});
+  });
+}
+function openModal(i) {
+  cur = i; const it = shown[i], v = verdicts(it); $('modal').hidden = false;
+  const box = $('big'), s = Math.min((box.clientHeight - 10) / it.h, (box.clientWidth - 10) / it.w);
+  draw($('bigCanvas'), it, it.w * s, true);
+  const p = v.r.points || {};
+  const rows = POINTS[kind(it)].map(([k, name], j) => `<tr><td><span style="color:${COLORS[j]}">●</span> ${j + 1}. ${name}</td><td>${p[k] ? p[k].map(x => Math.round(x)).join(', ') : 'нет в кадре'}</td></tr>`).join('');
+  let meas = '';
+  if (kind(it) === 'spine') meas = `<tr><td>Наклон оси</td><td>${fmt(v.m.tilt, 1)}° (порог ${TILT_T}°)</td></tr><tr><td>Крылья таза</td><td>${v.m.crests ? 'оба в кадре' : 'не оба в кадре'}</td></tr><tr><td>Рамок</td><td>${v.m.boxes}</td></tr>`;
+  else if (!v.skip) meas = `<tr><td>Поле сверху</td><td>${fmt(v.m.margins.top)} мм</td></tr><tr><td>Поле снизу</td><td>${fmt(v.m.margins.bottom)} мм</td></tr><tr><td>Поле сбоку</td><td>${fmt(v.m.margins.lateral)} мм</td></tr><tr><td>Малый вертел</td><td>${LT[v.r.choice] || '—'}</td></tr>`;
+  const lab = v.types.map(k => `<tr><td>${NAMES[k]}</td><td>эксперт: ${v.lab[k] ? '<b style="color:var(--bad)">нарушение</b>' : 'норма'} · правило: ${v.m.rule[k] ? 'нарушение' : 'норма'}</td></tr>`).join('');
+  const editor = `../annotator/index.html?load=${encodeURIComponent('../../data/train/keypoints_claude_export.json')}&id=${it.id}`;
+  $('side').innerHTML = `<h2>${it.id}</h2><div class="chips">${chips(v)}</div>
+    <div class="btns"><a href="${editor}" target="_blank"><button>Открыть в редакторе ↗</button></a><button onclick="closeModal()">Закрыть</button></div>
+    <table>${lab}</table>${v.lab.comment ? `<p><b>Комментарий эксперта:</b> ${v.lab.comment}</p>` : ''}
+    <h3>Измерения</h3><table>${meas}</table><h3>Точки</h3><table>${rows}</table>
+    <div class="keys">← → соседние снимки · Esc закрыть · E редактор</div>`;
+}
+function closeModal() { $('modal').hidden = true; cur = -1; }
+window.addEventListener('keydown', e => {
+  if ($('modal').hidden) return;
+  if (e.key === 'Escape') closeModal();
+  else if (e.key === 'ArrowRight' && cur < shown.length - 1) openModal(cur + 1);
+  else if (e.key === 'ArrowLeft' && cur > 0) openModal(cur - 1);
+  else if (e.key.toLowerCase() === 'e') window.open($('side').querySelector('a').href, '_blank');
+});
+$('modal').addEventListener('click', e => { if (e.target.id === 'modal' || e.target.id === 'big') closeModal(); });
+['fRegion', 'fMode', 'fContrast'].forEach(id => $(id).addEventListener('change', render));
+$('fSearch').addEventListener('input', render);
+
+async function init() {
+  let file = {};
+  try { file = (await (await fetch('../../data/train/keypoints_claude_export.json')).json()).annotations || {}; } catch (e) { console.warn(e); }
+  let local = {};
+  try { local = JSON.parse(localStorage.getItem('dxa_keypoints_v1') || '{}'); } catch (e) {}
+  // Same origin as the editor: its newer edits override the exported file.
+  ann = {...file};
+  for (const [id, r] of Object.entries(local)) if (!ann[id] || (r.updated || '') > (ann[id].updated || '')) ann[id] = r;
+  items = window.MANIFEST.slice().sort((a, b) => a.n - b.n || a.region.localeCompare(b.region));
+  for (const it of items) { const im = new Image(); im.src = `../../data/annotation/images/${it.id}.png`; imgs[it.id] = im; }
+  render();
+}
+init();
+</script>
+</body>
+</html>

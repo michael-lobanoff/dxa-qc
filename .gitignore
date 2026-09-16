@@ -1,0 +1,17 @@
+# Medical data from the organizer: never commit
+data/
+dist/
+*.dcm
+dxa_keypoints_*.json
+
+.venv/
+__pycache__/
+*.egg-info/
+.DS_Store
+
+# Pitch images rendered from patient scans stay local (organizer data)
+docs/night/
+outputs/
+logs/
+.pytest_cache/
+.claude/scheduled_tasks.lock

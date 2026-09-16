@@ -1,0 +1,151 @@
+<!doctype html>
+<html lang="ru">
+<head>
+<meta charset="utf-8">
+<title>Как размечать снимки DXA</title>
+<style>
+  :root { --text:#1d232b; --muted:#5d6878; --line:#dde2e8; --acc:#0a7bc2; --bg:#fafbfc; --card:#fff; --warn:#b45309; }
+  body { margin:0; background:var(--bg); color:var(--text); font:16px/1.6 -apple-system,system-ui,"Segoe UI",sans-serif; }
+  main { max-width:980px; margin:0 auto; padding:28px 20px 60px; }
+  h1 { font-size:28px; margin:0 0 6px; } h2 { font-size:22px; margin:44px 0 10px; padding-top:18px; border-top:1px solid var(--line); }
+  h3 { font-size:17px; margin:22px 0 8px; }
+  .lead { color:var(--muted); font-size:17px; }
+  .card { background:var(--card); border:1px solid var(--line); border-radius:10px; padding:14px 16px; margin:12px 0; }
+  .tip { background:#eef7fd; border-color:#bfe0f5; } .warn { background:#fff7ed; border-color:#fcd9b0; }
+  .row { display:grid; grid-template-columns:repeat(auto-fit,minmax(280px,1fr)); gap:16px; align-items:start; }
+  figure { margin:0; } figure img { width:100%; border-radius:8px; border:1px solid var(--line); display:block; }
+  figcaption { font-size:14px; color:var(--muted); margin-top:6px; }
+  ol.steps li { margin:6px 0; } b.k { background:#eef1f5; border:1px solid var(--line); border-radius:5px; padding:0 6px; font-family:ui-monospace,monospace; font-size:14px; }
+  table { border-collapse:collapse; width:100%; font-size:15px; } td, th { border-bottom:1px solid var(--line); padding:7px 8px; text-align:left; vertical-align:top; }
+  th { color:var(--muted); font-weight:600; } nav a { color:var(--acc); margin-right:14px; }
+</style>
+</head>
+<body>
+<main>
+<h1>Как размечать снимки — даже если не знаешь анатомию</h1>
+<p class="lead">Знать медицину не нужно. Снимки бывают только двух видов, и на каждом надо узнать несколько простых
+«форм». Разметка сама подсказывает, какую точку ставить, и справа показывает пример.</p>
+<nav><a href="#kind">Какой снимок</a><a href="#spine">Позвоночник</a><a href="#hip">Бедро</a><a href="#doubt">Если сомневаешься</a><a href="#keys">Клавиши</a></nav>
+
+<h2 id="kind">1. Какой снимок передо мной</h2>
+<div class="row">
+  <div class="card"><b>Позвоночник</b> — посередине идёт светлый вертикальный <b>столб</b> из «кирпичиков».
+  Внизу по бокам часто видны большие светлые дуги — это <b>крылья таза</b>.<br><b>4 клика.</b></div>
+  <div class="card"><b>Бедро</b> — кость, похожая на <b>клюшку</b>: сверху <b>шар</b>, который сидит в «чаше» таза,
+  ниже длинная ровная <b>труба</b>.<br><b>9 кликов и одна клавиша.</b></div>
+</div>
+
+<h2 id="spine">2. Позвоночник: 4 клика</h2>
+<div class="row">
+  <figure><img src="../data/annotation/guide/ex_spine_ok.png"><figcaption>Нормальный снимок: всё в кадре.</figcaption></figure>
+  <div>
+    <ol class="steps">
+      <li><b>Середина столба у верхнего края.</b> Найди светлый столб и кликни в его середину у самого верха снимка.</li>
+      <li><b>Середина столба на уровне крыльев.</b> Найди верхушки двух светлых дуг внизу (крылья таза) и кликни в середину столба на этой высоте (пунктир на картинке).</li>
+      <li><b>Верхушка левого крыла</b> — самая высокая точка светлой дуги в левом нижнем углу.</li>
+      <li><b>Верхушка правого крыла</b> — то же справа.</li>
+    </ol>
+    <div class="card tip">Точки 1 и 2 вместе задают <b>ось позвоночника</b>: по ней считается наклон. Точки 3 и 4 показывают,
+    что снимок захватил таз.</div>
+  </div>
+</div>
+
+<h3>Если внизу нет крыльев таза</h3>
+<div class="row">
+  <figure><img src="../data/annotation/guide/ex_spine_nopelvis.png"><figcaption>Снимок закончили слишком высоко: таза не видно.</figcaption></figure>
+  <div class="card">Это как раз одна из ошибок, которые мы ищем.<br>
+  Точка 2 ставится в середину столба у <b>нижнего края</b> снимка.<br>
+  Для точек 3 и 4 жми <b class="k">N</b> («нет в кадре»).</div>
+</div>
+
+<h3>Инородные тела (и чем они отличаются от рёбер)</h3>
+<div class="row">
+  <figure><img src="../data/annotation/guide/ex_spine_artifact.png"><figcaption>Красные рамки — косточки бюстгальтера.</figcaption></figure>
+  <div>
+    <div class="card warn"><b>Инородное тело</b> — <b>тонкая, очень яркая, чёткая</b> линия или предмет: косточки и застёжки белья,
+    крючки, скобы, пуговицы. Нажми <b class="k">B</b>, обведи мышкой рамку, снова <b class="k">B</b>. Лишнюю рамку удаляет <b class="k">X</b>.</div>
+    <div class="card"><b>Рёбра</b> — <b>широкие, серые, размытые</b> полосы, идущие по диагонали вверху. Это норма, их <b>не обводим</b>.</div>
+    <figure><img src="../data/annotation/guide/tz_fig3_artifact.png" style="max-width:280px"><figcaption>Рисунок 3 из ТЗ: косточки белья (красные стрелки).</figcaption></figure>
+  </div>
+</div>
+
+<h2 id="hip">3. Бедро: 9 кликов и одна клавиша</h2>
+<h3>Словарик: 6 «форм»</h3>
+<table>
+<tr><th>Слово</th><th>Как выглядит на снимке</th></tr>
+<tr><td><b>Головка</b></td><td>Шар на верхнем конце кости. Сидит в «чаше» таза, поэтому частично перекрыт светлой костью таза.</td></tr>
+<tr><td><b>Шейка</b></td><td>Перешеек между шаром и основной частью кости. Над ним тёмная «ямка».</td></tr>
+<tr><td><b>Большой вертел</b></td><td>Большой бугор <b>снаружи</b> кости (со стороны, противоположной тазу), на уровне шейки.</td></tr>
+<tr><td><b>Малый вертел</b></td><td>Маленький бугорок <b>внутри</b> (со стороны таза), чуть ниже шейки. Контур кости там слегка «горбится».</td></tr>
+<tr><td><b>Седалищная кость</b></td><td>Нижний кусок таза рядом с бедром, со стороны таза, ниже шара.</td></tr>
+<tr><td><b>Диафиз</b></td><td>Длинная ровная «труба» кости, уходящая вниз.</td></tr>
+</table>
+<div class="card tip"><b>«Снаружи» и «внутри».</b> Внутри — сторона, где таз (там же шар). Снаружи — противоположная сторона,
+где большой бугор. У правого бедра шар справа на снимке, у левого — слева. Инструмент сам знает, какое бедро перед тобой,
+и показывает пример с той же стороной.</div>
+
+<div class="row">
+  <figure><img src="../data/annotation/guide/tz_fig4_hip.png"><figcaption>Рисунок 4 из ТЗ (подписали эксперты): 1 — большой вертел, 2 — шейка, 3 — седалищная кость. Шар — вверху слева, в чаше таза.</figcaption></figure>
+  <figure><img src="../data/annotation/guide/ex_hip_right.png"><figcaption>Правое бедро (шар справа): все 9 точек.</figcaption></figure>
+</div>
+<div class="row">
+  <figure><img src="../data/annotation/guide/ex_hip_left.png"><figcaption>Левое бедро: всё зеркально.</figcaption></figure>
+  <div>
+    <ol class="steps">
+      <li><b>Центр головки</b> — центр шара.</li>
+      <li><b>Верх головки</b> — самая верхняя точка шара.</li>
+      <li><b>Центр шейки</b> — середина перешейка в самом узком месте.</li>
+      <li><b>Верхушка большого вертела</b> — верх большого бугра снаружи.</li>
+      <li><b>Наружный край большого вертела</b> — самая крайняя точка бугра наружу. Срезан краем кадра — <b class="k">N</b>.</li>
+      <li><b>Малый вертел</b> — вершина бугорка на внутреннем крае. Бугорка нет, край гладкий — <b class="k">N</b>.</li>
+      <li><b>Низ седалищной кости</b> — её самая нижняя видимая точка. Нет в кадре — <b class="k">N</b>.</li>
+      <li><b>Середина кости под малым вертелом</b> — посередине ширины трубы.</li>
+      <li><b>Середина кости у нижнего края</b> — посередине ширины трубы внизу снимка.</li>
+    </ol>
+  </div>
+</div>
+
+<h3>Размер малого вертела: клавиша 1, 2 или 3</h3>
+<p>После 9 точек инструмент попросит оценить малый вертел. Смотри на внутренний край кости под шейкой:</p>
+<div class="row">
+  <figure><img src="../data/annotation/guide/tz_fig5b_over.png"><figcaption><b>1 — не виден.</b> Край гладкий, ровная дуга без бугорка.</figcaption></figure>
+  <figure><img src="../data/annotation/guide/tz_fig5a_ok.png"><figcaption><b>2 — норма.</b> Маленький бугорок слегка деформирует контур (зелёная стрелка).</figcaption></figure>
+  <figure><img src="../data/annotation/guide/tz_fig5c_under.png"><figcaption><b>3 — большой.</b> Бугорок заметно торчит внутрь.</figcaption></figure>
+</div>
+<p style="color:var(--muted);font-size:14px">Картинки — рисунок 5 из ТЗ. На третьей поверх снимка нарисованы линии аппарата, на них не смотри, смотри на форму кости.</p>
+
+<h3>Протез</h3>
+<div class="row">
+  <figure><img src="../data/annotation/guide/ex_hip_implant.png" style="max-width:260px"><figcaption>Очень белый металлический стержень внутри кости — протез.</figcaption></figure>
+  <div class="card">Такие снимки не размечаем: жми <b class="k">S</b> и переходи к следующему.</div>
+</div>
+
+<h2 id="doubt">4. Если сомневаешься</h2>
+<div class="card">
+<ul>
+  <li><b>Идеальная точность не нужна.</b> Промах на 2–3 пикселя ни на что не влияет.</li>
+  <li><b>Не уверен — нажми <b class="k">U</b> («сомневаюсь») и иди дальше.</b> Такие снимки я потом пересмотрю. Быстро и примерно лучше, чем долго и идеально.</li>
+  <li><b>Ошибся</b> — <b class="k">Z</b> отменяет последнюю точку, или просто перетащи точку мышкой. Можно кликнуть по названию точки в списке справа и поставить её заново.</li>
+  <li>Снимок тусклый — <b class="k">C</b> включает контраст.</li>
+</ul>
+</div>
+
+<h2 id="keys">5. Клавиши</h2>
+<table>
+<tr><th>Клавиша</th><th>Что делает</th></tr>
+<tr><td>клик</td><td>поставить текущую точку (дальше инструмент сам перейдёт к следующей)</td></tr>
+<tr><td>перетащить</td><td>поправить уже поставленную точку</td></tr>
+<tr><td><b class="k">N</b></td><td>точки нет в кадре / не видна</td></tr>
+<tr><td><b class="k">Z</b></td><td>отменить последнюю точку</td></tr>
+<tr><td><b class="k">→</b> или <b class="k">Enter</b></td><td>следующий снимок; <b class="k">←</b> — предыдущий</td></tr>
+<tr><td><b class="k">B</b> / <b class="k">X</b></td><td>рамка вокруг инородного тела / удалить последнюю рамку</td></tr>
+<tr><td><b class="k">1</b> <b class="k">2</b> <b class="k">3</b></td><td>размер малого вертела (только бедро)</td></tr>
+<tr><td><b class="k">U</b></td><td>сомневаюсь</td></tr>
+<tr><td><b class="k">S</b></td><td>не размечать (протез, испорченный снимок)</td></tr>
+<tr><td><b class="k">C</b></td><td>контраст</td></tr>
+</table>
+<div class="card tip"><b>Сохранение.</b> Всё сохраняется в браузере автоматически. Каждые ~30 снимков и в конце жми
+<b>«Экспорт JSON»</b>: файл окажется в «Загрузках». Этот файл мне и нужен.</div>
+</main>
+</body>
+</html>
