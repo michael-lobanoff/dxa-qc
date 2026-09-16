@@ -100,16 +100,26 @@ models/           веса и модели (kp_spine.pt, kp_hip.pt, region.pkl, 
 
 ## Запуск
 
+Одним скриптом (нужен только Docker, проверено на Linux и macOS):
+
 ```bash
-python3 -m venv .venv && .venv/bin/pip install -r requirements.txt && .venv/bin/pip install -e .
-.venv/bin/python scripts/predict.py <папка_или_архив.zip> --out outputs/results.csv
+./run.sh build                    # собрать образ
+./run.sh predict /path/to/studies # обработать исследования -> ./outputs
+./run.sh serve                    # веб-интерфейс на http://localhost:8000
 ```
 
-Docker:
+Те же шаги вручную:
 
 ```bash
 docker build --platform linux/amd64 -t dxa-qc .
-docker run --rm -v /path/to/studies:/data -v $PWD/outputs:/out dxa-qc /data --out /out/results.csv
+docker run --rm -v /path/to/studies:/data -v $PWD/outputs:/out dxa-qc /data --out /out/results.csv --vis /out/vis
+```
+
+Без Docker:
+
+```bash
+python3 -m venv .venv && .venv/bin/pip install -r requirements.txt && .venv/bin/pip install -e .
+.venv/bin/python scripts/predict.py <папка_или_архив.zip> --out outputs/results.csv
 ```
 
 ## Веб-интерфейс и HTTP API
