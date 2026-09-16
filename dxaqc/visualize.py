@@ -71,6 +71,10 @@ def render_overlay(img, result):
             "-" if meas.get(f"margin_{k}") is None else f"{meas[f'margin_{k}']:.0f}" for k in ("top", "bottom", "lateral")) + " mm"]
         if meas.get("rotation") is not None:
             lines.append(f"rotation score {meas['rotation']:.2f}")
+    for r in result.get("measurements", {}).get("rois") or []:      # proposed measurement region (ТЗ 2.6)
+        x0, y0, x1, y1 = (int(round(v * SCALE)) for v in r["box"])
+        cv2.rectangle(rgb, (x0, y0), (x1, y1), CYAN, 1, cv2.LINE_AA)
+        cv2.putText(rgb, r["level"], (x0 + 4, y0 + 16), cv2.FONT_HERSHEY_SIMPLEX, 0.4, CYAN, 1, cv2.LINE_AA)
     if result.get("implant"):
         lines.append("IMPLANT: not evaluated"); color = YELLOW
     else:

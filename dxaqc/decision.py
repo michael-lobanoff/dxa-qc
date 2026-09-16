@@ -11,6 +11,7 @@ from sklearn.metrics import f1_score
 from .artifacts import artifact_features
 from .features import hip_features, spine_curvature
 from .geometry import MM_PER_PX, axes_mm, spine_rules
+from .roi import hip_roi, spine_rois
 from .vertebrae import find as find_vertebrae
 
 TYPES = {
@@ -39,6 +40,7 @@ def spine_measurements(img, points, conf, mm_per_px=None):
             "span_mm": r["span_mm"], "span_vert": r["span_vert"], "top_coverage_ok": r["top_coverage_ok"],
             "vert_pitch_mm": None if vert is None else vert["pitch_px"] * axes_mm(mm_per_px)[1],
             "vert_n": None if vert is None else vert["n"], "vert_points": None if vert is None else vert["points"],
+            "rois": spine_rois(img, points, vert),
             "crest_conf": min(conf.get("crest_a", 0.0), conf.get("crest_b", 0.0)),
             "area_top": a["area_top"], "n_out": a["n_out"], "max_len": a["max_len"],
             "printed_markup": a["n_overlay_lines"] >= 3}
@@ -46,8 +48,10 @@ def spine_measurements(img, points, conf, mm_per_px=None):
 
 def hip_measurements(img, points, conf, side, mm_per_px=None):
     f = hip_features(points, img.shape, side, MM_PER_PX if mm_per_px is None else mm_per_px)
+    roi = hip_roi(points, img.shape)
     return {"margin_bottom": f["margin_bottom"], "margin_top": f["margin_top"], "margin_lateral": f["margin_lateral"],
-            "shaft_angle": f.get("shaft_angle"), "lt_conf": conf.get("lt", 0.0)}
+            "shaft_angle": f.get("shaft_angle"), "lt_conf": conf.get("lt", 0.0),
+            "rois": [roi] if roi else []}
 
 
 def best_threshold(y, p):

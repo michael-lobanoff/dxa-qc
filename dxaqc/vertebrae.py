@@ -1,7 +1,11 @@
 """Vertebral bodies along the lumbar column.
 
 On these exports the trabecular centre of a vertebral body is darker than its cortical endplates, so
-the column reads along its axis as a regular train of dark blocks. Fitting that train gives the
+the column reads along its axis as a regular train of dark blocks. On a public DXA set from another
+centre the chain does not lock onto the right phase at all (its rendering differs), and choosing the
+polarity automatically by response strength did not fix it — measured against the ROI boxes that
+scanner printed on its images, the phase stayed uniformly distributed. So this module is validated on
+the organisers' exports only; see docs/night_report.md. Fitting that train gives the
 vertebral pitch (body + disc) — a per-patient anatomical ruler — and the positions of the bodies.
 
 The pitch is what the upper-coverage criterion of ТЗ 2.3 needs: the scan must reach the middle of
@@ -99,9 +103,10 @@ def find(img, points, mm_per_px=None):
     x = np.clip(np.rint(pts[..., 0]).astype(int), 0, img.shape[1] - 1)
     y = np.clip(np.rint(pts[..., 1]).astype(int), 0, img.shape[0] - 1)
     prof = img[y, x].astype(np.float32).mean(1)
-    d = prof - _smooth(prof, 91)
-    d = (d - d.mean()) / (d.std() + 1e-6)
+    d0 = prof - _smooth(prof, 91)
+    d0 = (d0 - d0.mean()) / (d0.std() + 1e-6)
     valid = inside & (_smooth(prof, 41) > np.percentile(prof[inside], 60) * 0.72)
+    d = d0
     best = None
     for P in periods:                                   # comb initialisation
         r = _response(d, P)
