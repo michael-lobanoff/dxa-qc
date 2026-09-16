@@ -1,12 +1,19 @@
-"""HTTP API for batch QC (ТЗ 3.2).
+"""HTTP API and web interface for batch QC (ТЗ 3.2 и 2.6).
 
 Run:  uvicorn dxaqc.api:app --host 0.0.0.0 --port 8000
+  GET  /                            web interface: upload, table of verdicts, overlay per image
   GET  /health                      models loaded, version
   POST /predict?format=json|csv|xlsx|zip   multipart files: DICOM files or one .zip archive
+  POST /analyse                     same input, JSON rows with a base64 overlay for the web interface
   POST /predict_folder              {"input": "/data", "output": "/out/results.csv", "vis": true}
                                     server-side batch over a mounted folder (paths limited to DXAQC_ALLOWED_ROOTS)
+
+The page is served from this package and uses no external resources, so the service stays usable on a
+machine with no internet access (ТЗ 3.2: локально, без обращения к внешним сервисам).
 """
+import base64
 import io
+import re
 import json
 import os
 import shutil
@@ -15,13 +22,15 @@ import zipfile
 from pathlib import Path
 
 from fastapi import FastAPI, File, HTTPException, Query, UploadFile
-from fastapi.responses import JSONResponse, Response
+from fastapi.responses import FileResponse, JSONResponse, Response
 from pydantic import BaseModel
 
 from .batch import run_batch, zip_folder
 from .service import QCService
 
 MODEL_DIR = Path(os.environ.get("DXAQC_MODELS", "models"))
+STATIC = Path(__file__).resolve().parent / "static"
+MAX_OVERLAYS = 60        # images returned to the browser as pictures; the table itself is unlimited
 ALLOWED_ROOTS = [Path(p).resolve() for p in os.environ.get("DXAQC_ALLOWED_ROOTS", f"/data:/out:{os.getcwd()}").split(":") if p]
 XLSX = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
 
@@ -48,6 +57,11 @@ def _zip_bytes(folder: Path) -> bytes:
             if f.is_file():
                 z.write(f, f.relative_to(folder))
     return buf.getvalue()
+
+
+@app.get("/", include_in_schema=False)
+def index():
+    return FileResponse(STATIC / "index.html")
 
 
 @app.get("/health")
@@ -83,6 +97,34 @@ async def predict(files: list[UploadFile] = File(...), format: str = Query("json
         if vis and vis.exists():
             shutil.copytree(vis, out / "overlays")
         return Response(_zip_bytes(out), media_type="application/zip", headers={"Content-Disposition": "attachment; filename=results.zip"})
+
+
+@app.post("/analyse")
+async def analyse(files: list[UploadFile] = File(...)):
+    """Rows plus a base64 PNG overlay per image — what the web interface shows."""
+    with tempfile.TemporaryDirectory() as tmp:
+        root = Path(tmp) / "in"
+        root.mkdir()
+        names = {}
+        for k, f in enumerate(files):
+            name = Path(f.filename or f"file{k}.dcm").name or f"file{k}.dcm"
+            stored = root / f"{k:04d}_{name}"
+            stored.write_bytes(await f.read())
+            names[str(stored)] = name
+        items = list(root.iterdir())
+        src = items[0] if len(items) == 1 and items[0].suffix.lower() == ".zip" else root
+        vis = Path(tmp) / "vis"
+        df = run_batch(src, service(), vis)
+        rows = json.loads(df.to_json(orient="records", force_ascii=False))
+        for r in rows:                       # show the names the user uploaded, not our temp copies
+            stem = Path(str(r.get("file", ""))).name
+            r["file"] = names.get(str(r.get("file")), re.sub(r"^\d{4}_", "", stem))
+        pngs = {p.stem: p for p in vis.glob("*.png")} if vis.exists() else {}
+        for r in rows[:MAX_OVERLAYS]:
+            p = pngs.get(str(r.get("image_uid")))
+            if p:
+                r["overlay"] = base64.b64encode(p.read_bytes()).decode()
+        return JSONResponse({"rows": rows})
 
 
 class FolderJob(BaseModel):

@@ -39,3 +39,25 @@ def test_predict_zip_csv_and_vis():
 
 def test_predict_folder_rejects_outside_paths():
     assert client.post("/predict_folder", json={"input": "/etc", "output": "/tmp/x.csv"}).status_code == 403
+
+
+def test_web_interface_is_served_and_offline():
+    """The page loads from the package and references no external host (ТЗ 3.2: works without internet)."""
+    r = client.get("/")
+    assert r.status_code == 200 and "Контроль качества денситометрии" in r.text
+    for marker in ("http://", "https://", "//cdn"):
+        assert marker not in r.text.replace("http://localhost:8000", ""), marker
+
+
+def test_analyse_returns_rows_with_overlay():
+    """The endpoint behind the web interface returns a row per image plus a base64 overlay."""
+    with open(SAMPLES[0], "rb") as f:
+        r = client.post("/analyse", files={"files": (SAMPLES[0].name, f.read(), "application/dicom")})
+    assert r.status_code == 200
+    rows = r.json()["rows"]
+    assert len(rows) == 1
+    row = rows[0]
+    assert row["file"] == SAMPLES[0].name
+    assert row["processing_status"] == "Success"
+    assert row["quality_class"] in (0, 1) and 0 <= row["quality_prob"] <= 1
+    assert len(row.get("overlay", "")) > 1000        # PNG, base64

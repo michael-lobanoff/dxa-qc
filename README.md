@@ -42,13 +42,24 @@ DICOM → чтение и нормализация → область (позв�
 Если снимок помечен по общей вероятности, но ни один тип не перешёл свой порог, в отчёте указывается
 наиболее вероятная причина и пометка «тип указан как наиболее вероятный».
 
+## Документация
+
+| Документ | О чём |
+|---|---|
+| [docs/user_guide.md](docs/user_guide.md) | руководство пользователя: запуск, чтение отчёта и картинок, что означает каждое нарушение |
+| [docs/deployment.md](docs/deployment.md) | развёртывание: сборка образа, переменные окружения, безопасность, типовые проблемы |
+| [docs/training.md](docs/training.md) | обучение и дообучение моделей на новых данных |
+| [docs/night_report.md](docs/night_report.md) | отчёт по экспериментам: что пробовали, что сработало, что нет |
+| [docs/annotation_scheme.md](docs/annotation_scheme.md) | схема разметки ключевых точек |
+
 ## Структура
 
 ```
 dxaqc/            пакет сервиса
   service.py      сервис: DICOM → результат (QCService, read_dicom_image)
   batch.py        пакетная обработка папки / zip (общая для CLI и API)
-  api.py          HTTP API (FastAPI)
+  api.py          HTTP API (FastAPI) + веб-интерфейс
+  static/         страница веб-интерфейса (без внешних библиотек, работает офлайн)
   visualize.py    визуализация нарушения: PNG + DICOM Secondary Capture
   sr.py           текстовый отчёт о нарушениях: DICOM Basic Text SR
   region.py       классификатор области + проверка «свой/чужой» снимок
@@ -100,17 +111,20 @@ docker build --platform linux/amd64 -t dxa-qc .
 docker run --rm -v /path/to/studies:/data -v $PWD/outputs:/out dxa-qc /data --out /out/results.csv
 ```
 
-## HTTP API
+## Веб-интерфейс и HTTP API
 
 ```bash
 .venv/bin/uvicorn dxaqc.api:app --host 0.0.0.0 --port 8000
+# затем http://localhost:8000 — загрузка файлов, таблица вердиктов, картинка по клику на строку
 # в Docker: docker run --rm -p 8000:8000 -v /path/to/studies:/data -v $PWD/outputs:/out --entrypoint uvicorn dxa-qc dxaqc.api:app --host 0.0.0.0 --port 8000
 ```
 
 | Метод | Что делает |
 |---|---|
+| `GET /` | веб-интерфейс: загрузка файлов, таблица, визуализация (ТЗ 2.6) |
 | `GET /health` | статус и список загруженных моделей |
 | `POST /predict?format=json\|csv\|xlsx\|zip` | multipart `files`: DICOM-файлы или один .zip; `zip` — таблица + визуализации |
+| `POST /analyse` | то же, что `/predict`, но с картинкой в ответе — используется веб-интерфейсом |
 | `POST /predict_folder` | `{"input": "/data", "output": "/out/results.csv", "vis": true}` — пакетная обработка смонтированной папки; пути только внутри `DXAQC_ALLOWED_ROOTS` (по умолчанию `/data`, `/out`, рабочая папка) |
 
 Документация OpenAPI: `http://localhost:8000/docs`.
