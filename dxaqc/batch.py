@@ -56,19 +56,59 @@ def iter_dicoms(root: Path):
             yield p
 
 
+def contralateral_rotation(rows):
+    """{row index: rotation probability of the other hip in the same study}.
+
+    Both hips of a patient are positioned in one session, so their rotation labels agree far more
+    often than chance; using the other hip stabilises the verdict (see decision.blend_rotation).
+    """
+    by_study = {}
+    for k, r in enumerate(rows):
+        if r.get("_region") in ("hip_left", "hip_right") and r.get("_rotation") is not None:
+            by_study.setdefault(r.get("study_uid") or r.get("path_to_study"), {})[r["_region"]] = (k, r["_rotation"])
+    out = {}
+    for sides in by_study.values():
+        for side, (k, _) in sides.items():
+            other = sides.get("hip_right" if side == "hip_left" else "hip_left")
+            if other is not None:
+                out[k] = other[1]
+    return out
+
+
 def run_batch(root: Path, service, vis_dir=None) -> pd.DataFrame:
-    """All DICOM files under root (folder or .zip) -> one results row per image."""
+    """All DICOM files under root (folder or .zip) -> one results row per image.
+
+    Two passes: every image is analysed on its own, then hips whose study contains the other side are
+    re-decided with the two rotation probabilities mixed. Overlays are rendered in the second pass so
+    the picture always matches the verdict in the table.
+    """
     root = Path(root)
     with tempfile.TemporaryDirectory() as tmp:
         if root.suffix.lower() == ".zip":
             extract_zip(root, Path(tmp))
             root = Path(tmp)
-        rows = []
+        files, rows = [], []
         for p in iter_dicoms(root):
             rel = p.relative_to(root)
             study = rel.parts[0] if len(rel.parts) > 1 else ""
-            rows.append(service.process_file(p, study_dir=study, vis_dir=(Path(vis_dir) / study) if vis_dir else None))
+            files.append((p, rel, study))
+            rows.append(service.process_file(p, study_dir=study))
             rows[-1]["file"] = str(rel)
+        alpha = getattr(service, "rotation_blend", 0.0)
+        contra = contralateral_rotation(rows) if alpha else {}
+        for k, (p, rel, study) in enumerate(files):
+            need_vis = vis_dir is not None
+            if k not in contra and not need_vis:
+                continue
+            override = None
+            if k in contra:
+                from .decision import blend_rotation
+                override = blend_rotation(rows[k]["_rotation"], contra[k], alpha)
+                if abs(override - rows[k]["_rotation"]) < 1e-9 and not need_vis:
+                    continue
+            rows[k] = service.process_file(p, study_dir=study, rotation_override=override,
+                                           vis_dir=(Path(vis_dir) / study) if need_vis else None)
+            rows[k]["file"] = str(rel)
     study_folders(rows)
     return pd.DataFrame(rows, columns=COLUMNS)
 

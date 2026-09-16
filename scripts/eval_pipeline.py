@@ -11,7 +11,7 @@ from pathlib import Path
 import numpy as np
 import pandas as pd
 from PIL import Image
-from sklearn.ensemble import RandomForestClassifier
+from sklearn.ensemble import ExtraTreesClassifier
 from sklearn.metrics import f1_score, roc_auc_score
 from sklearn.model_selection import StratifiedGroupKFold
 from sklearn.pipeline import make_pipeline
@@ -36,6 +36,17 @@ def lr():
 def best_threshold(y, p):
     grid = np.unique(np.quantile(p, np.linspace(0.02, 0.98, 49)))
     return max(grid, key=lambda t: f1_score(y, p >= t, zero_division=0))
+
+
+def blend_with_other_hip(prob, ids, alpha):
+    """Mix each hip's rotation probability with the other hip of the same study (decision.blend_rotation)."""
+    pos = {(i[:3], i[4:]): k for k, i in enumerate(ids)}
+    out = prob.copy()
+    for k, i in enumerate(ids):
+        j = pos.get((i[:3], "hip_right" if i[4:] == "hip_left" else "hip_left"))
+        if j is not None:
+            out[k] = (1 - alpha) * prob[k] + alpha * prob[j]
+    return out
 
 
 def cv_type(X, y, groups, make_model, seed):
@@ -104,11 +115,15 @@ def main():
                 if cols == "rotation":
                     prob, dec = np.zeros(len(yv)), np.zeros(len(yv), bool)
                     for tr, va in StratifiedGroupKFold(5, shuffle=True, random_state=seed).split(hog_man, yv, groups):
-                        rf = RandomForestClassifier(500, min_samples_leaf=3, max_features=0.1, class_weight="balanced_subsample", random_state=0, n_jobs=4)
+                        rf = ExtraTreesClassifier(800, min_samples_leaf=3, max_features=0.1,
+                                                  class_weight="balanced_subsample", random_state=0, n_jobs=4)
                         rf.fit(np.vstack([hog_man[tr], hog_det[tr]]), np.concatenate([yv[tr], yv[tr]]))
                         # threshold from inner out-of-bag-like estimate: fit on training crops placed by the detector
                         t = best_threshold(yv[tr], rf.predict_proba(hog_det[tr])[:, 1])
                         prob[va] = rf.predict_proba(hog_det[va])[:, 1]; dec[va] = prob[va] >= t
+                    prob = blend_with_other_hip(prob, ids, alpha=0.2)
+                    for tr, va in StratifiedGroupKFold(5, shuffle=True, random_state=seed).split(hog_man, yv, groups):
+                        dec[va] = prob[va] >= best_threshold(yv[tr], prob[tr])
                 else:
                     feats, signs = cols
                     prob, dec = cv_type(F[feats].to_numpy(float), yv, groups, lambda: Monotone(signs, lr_weights=True), seed)

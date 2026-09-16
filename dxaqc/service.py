@@ -50,9 +50,11 @@ class QCService:
             d = pickle.load(f)
         self.decision = {"spine": d["spine"], "hip": d["hip"]}
         self.rotation, self.hog_cell = d["rotation_rf"], d["hog_cell"]
+        self.rotation_blend = float(d.get("rotation_blend", 0.0))   # weight of the other hip
 
-    def analyse(self, img, mm_per_px=None):
-        """mm_per_px: pixel size of this image (see pixels.pixel_spacing_mm); None = the export default."""
+    def analyse(self, img, mm_per_px=None, rotation_override=None):
+        """mm_per_px: pixel size of this image (see pixels.pixel_spacing_mm); None = the export default.
+        rotation_override: rotation probability already blended with the other hip of the study."""
         ok, why, stats = self.region.check(img)
         if not ok:
             # Not a DXA spine / proximal femur: refuse instead of inventing a quality verdict.
@@ -72,7 +74,8 @@ class QCService:
                 return out
             meas = hip_measurements(img, points, conf, region, mm_per_px)
             crop, _ = hip_crop(img, points, region)
-            meas["rotation"] = float(self.rotation.predict_proba(rotation_features(crop)[None])[0, 1])
+            meas["rotation_own"] = float(self.rotation.predict_proba(rotation_features(crop)[None])[0, 1])
+            meas["rotation"] = meas["rotation_own"] if rotation_override is None else float(rotation_override)
         model = self.decision["spine" if region == "spine" else "hip"]
         probs, decs, score = model.predict(meas)
         quality_class, violations = model.verdict(probs, decs, score, self.policy)
@@ -94,7 +97,7 @@ class QCService:
                    quality_class=quality_class, presumed=presumed)
         return out
 
-    def process_file(self, path, study_dir="", vis_dir=None):
+    def process_file(self, path, study_dir="", vis_dir=None, rotation_override=None):
         """One results row. With vis_dir, also writes <image_uid>.png, a Secondary Capture <image_uid>_qc.dcm
         and a Basic Text SR <image_uid>_sr.dcm with the findings."""
         t0 = time.time()
@@ -107,7 +110,7 @@ class QCService:
             row["study_uid"] = str(getattr(ds, "StudyInstanceUID", ""))
             row["image_uid"] = str(getattr(ds, "SOPInstanceUID", ""))
             mm, mm_src = pixel_spacing_mm(ds, img.shape)
-            r = self.analyse(img, mm)
+            r = self.analyse(img, mm, rotation_override)
             row["mm_per_px"] = f"{mm[0]:.3f}x{mm[1]:.3f}" if mm[0] != mm[1] else round(mm[0], 4)
             row["mm_per_px_source"] = mm_src
             if r.get("unsupported"):
@@ -118,6 +121,8 @@ class QCService:
                 row["time_of_processing"] = round(time.time() - t0, 3)
                 return row
             row["anatomical_region"] = REGION_RU[r["region"]]
+            row["_region"] = r["region"]
+            row["_rotation"] = r.get("measurements", {}).get("rotation_own")
             if r["implant"]:
                 row.update(quality_class=0, violation_type="эндопротез: оценка качества не проводится", violation_codes="implant")
             else:
