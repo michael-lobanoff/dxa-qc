@@ -68,6 +68,12 @@ def main():
         print(f"{region}: {len(ids)} images; per-type thresholds:",
               {vt: round(t, 3) for vt, t in out[region].thresholds.items()},
               "| image thresholds:", {k: round(v, 3) for k, v in out[region].image_thresholds.items()})
+    # one operating point for both regions, fitted on every labelled image at once
+    y_all = np.concatenate([out[r].y_img_ for r in ("spine", "hip")])
+    s_all = np.concatenate([out[r].scores_ for r in ("spine", "hip")])
+    for r in ("spine", "hip"):
+        out[r].set_image_thresholds(y_all, s_all)
+    print("общий порог по изображению:", {k: round(v, 3) for k, v in out["spine"].image_thresholds.items()})
     Path("models").mkdir(exist_ok=True)
     with open("models/decision.pkl", "wb") as f:
         pickle.dump(out, f)

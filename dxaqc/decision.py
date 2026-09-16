@@ -16,7 +16,9 @@ from .vertebrae import find as find_vertebrae
 
 TYPES = {
     "spine": {"v_axis": (["abs_tilt", "curvature"], [1, -1]), "v_pos": (["crest_conf"], [-1]),
-              "v_artifact": (["area_top", "n_out", "max_len"], [1, 1, 1])},
+              # artifacts: one measurement beats three — the extra two are weaker (0.84, 0.80 against
+              # 0.90) and with 17 positives they cost more than they add (per-fold AUC 0.869 -> 0.893)
+              "v_artifact": (["area_top"], [1])},
     "hip": {"v_roi": (["margin_bottom", "margin_top"], [-1, -1]), "v_posrot": (["rotation"], [1])},
 }
 # Wording fixed by the organisers (разъяснения V2, вопрос 6): exactly these strings, several joined
@@ -61,10 +63,17 @@ def best_threshold(y, p):
 
 class Monotone:
     """Score = weighted sum of standardised features with known direction (+1 = larger is worse),
-    Platt-calibrated. With 6-17 positives an unconstrained model can learn the wrong sign; this cannot."""
+    then calibrated. With 6-17 positives an unconstrained model can learn the wrong sign; this cannot.
 
-    def __init__(self, signs, lr_weights=True):
-        self.signs, self.lr_weights = np.asarray(signs, float), lr_weights
+    The Platt step is applied to the PERCENTILE of the score within the training set, not to the score
+    itself. With so few positives a sigmoid fitted directly on the score varies a lot between folds, so
+    probabilities from different folds end up on different scales — pooling them cost up to 0.12 AUC
+    (v_pos 0.758 -> 0.878), and the noisy-OR across violation types inherits the same distortion.
+    A percentile always lives on [0, 1], so the calibration is comparable whatever the fold.
+    """
+
+    def __init__(self, signs, lr_weights=True, percentile=True):
+        self.signs, self.lr_weights, self.percentile = np.asarray(signs, float), lr_weights, percentile
 
     def fit(self, X, y):
         Z = X * self.signs
@@ -75,14 +84,21 @@ class Monotone:
             self.w = np.clip(w, 0, None) if (w > 0).any() else np.ones(Z.shape[1])
         else:
             self.w = np.ones(Z.shape[1])
-        self.cal = LogisticRegression(C=10.0, max_iter=2000).fit((Z @ self.w)[:, None], y)
+        s = Z @ self.w
+        self.ref = np.sort(s)
+        self.cal = LogisticRegression(C=10.0, max_iter=2000).fit(self._scale(s)[:, None], y)
         if self.cal.coef_[0, 0] <= 0:
             self.cal.coef_[0, 0] = 1e-3
         return self
 
+    def _scale(self, s):
+        if not self.percentile:
+            return s
+        return np.searchsorted(self.ref, s) / max(len(self.ref), 1)
+
     def predict_proba(self, X):
         s = ((X * self.signs - self.mu) / self.sd) @ self.w
-        p = self.cal.predict_proba(s[:, None])[:, 1]
+        p = self.cal.predict_proba(self._scale(s)[:, None])[:, 1]
         return np.stack([1 - p, p], 1)
 
 
@@ -114,10 +130,17 @@ class DecisionModel:
             self.models[vt] = m
             probs[vt] = m.predict_proba(feats[vt])[:, 1]
             self.thresholds[vt] = float(best_threshold(labels[vt], probs[vt]))
-        score = 1 - np.prod([1 - probs[vt] for vt in probs], axis=0)
-        y_img = np.max([labels[vt] for vt in labels], axis=0) if y_img is None else np.asarray(y_img)
-        self.image_thresholds = {"screening": sensitivity_threshold(y_img, score, 0.80),
-                                 "balanced": float(best_threshold(y_img, score))}
+        self.scores_ = 1 - np.prod([1 - probs[vt] for vt in probs], axis=0)
+        self.y_img_ = np.max([labels[vt] for vt in labels], axis=0) if y_img is None else np.asarray(y_img)
+        self.set_image_thresholds(self.y_img_, self.scores_)
+        return self
+
+    def set_image_thresholds(self, y_img, score):
+        """One operating point for the whole service. Measured out-of-fold, a threshold shared by spine
+        and hip beats separate ones (F1 0.656 against 0.636): after the percentile calibration the
+        probabilities are on the same scale, and one threshold is estimated from twice the data."""
+        self.image_thresholds = {"screening": sensitivity_threshold(np.asarray(y_img), np.asarray(score), 0.80),
+                                 "balanced": float(best_threshold(np.asarray(y_img), np.asarray(score)))}
         return self
 
     def predict(self, meas):

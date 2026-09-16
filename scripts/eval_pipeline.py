@@ -12,13 +12,12 @@ import numpy as np
 import pandas as pd
 from PIL import Image
 from sklearn.ensemble import RandomForestClassifier
-from sklearn.linear_model import LogisticRegression
 from sklearn.metrics import f1_score, roc_auc_score
 from sklearn.model_selection import StratifiedGroupKFold
 from sklearn.pipeline import make_pipeline
 from sklearn.preprocessing import StandardScaler
 
-from dxaqc.decision import TYPES, sensitivity_threshold, spine_measurements
+from dxaqc.decision import TYPES, Monotone, sensitivity_threshold, spine_measurements
 from dxaqc.features import hip_features
 from dxaqc.hipcrop import hip_crop
 from dxaqc.hog import hog
@@ -38,36 +37,6 @@ def lr():
 def best_threshold(y, p):
     grid = np.unique(np.quantile(p, np.linspace(0.02, 0.98, 49)))
     return max(grid, key=lambda t: f1_score(y, p >= t, zero_division=0))
-
-
-class Monotone:
-    """Score = weighted sum of features with known direction (+1 = larger is worse), Platt-calibrated.
-    With 6-17 positives an unconstrained model can learn the wrong sign on a fold; this cannot."""
-
-    def __init__(self, signs, lr_weights=False):
-        self.signs, self.lr_weights = np.asarray(signs, float), lr_weights
-
-    def fit(self, X, y):
-        Z = X * self.signs
-        self.mu, self.sd = Z.mean(0), Z.std(0) + 1e-9
-        Z = (Z - self.mu) / self.sd
-        if self.lr_weights and Z.shape[1] > 1:   # non-negative weights from a logistic fit, clipped
-            w = LogisticRegression(C=1.0, class_weight="balanced", max_iter=2000).fit(Z, y).coef_[0]
-            self.w = np.clip(w, 0, None) if (w > 0).any() else np.ones(Z.shape[1])
-        else:
-            self.w = np.ones(Z.shape[1])
-        s = Z @ self.w
-        self.cal = LogisticRegression(C=10.0, max_iter=2000).fit(s[:, None], y)
-        if self.cal.coef_[0, 0] <= 0:            # degenerate fold: keep the ranking, flat-ish probabilities
-            self.cal.coef_[0, 0] = 1e-3
-        return self
-
-    def score(self, X):
-        return ((X * self.signs - self.mu) / self.sd) @ self.w
-
-    def predict_proba(self, X):
-        p = self.cal.predict_proba(self.score(X)[:, None])[:, 1]
-        return np.stack([1 - p, p], 1)
 
 
 def cv_type(X, y, groups, make_model, seed):
@@ -146,36 +115,46 @@ def main():
                     prob, dec = cv_type(F[feats].to_numpy(float), yv, groups, lambda: Monotone(signs, lr_weights=True), seed)
                 probs[vt], decs[vt] = prob, dec
             score = 1 - np.prod(1 - np.stack(list(probs.values())), 0)   # noisy-OR: "any violation"
-            # Image verdict: a threshold on that score, chosen on the other studies of the split
-            # (the shipped policy, decision.sensitivity_threshold). "Any type fired" is kept for comparison.
-            dec_img = np.zeros(len(y_img), bool)
-            for tr, va in StratifiedGroupKFold(5, shuffle=True, random_state=seed).split(score[:, None], y_img, groups):
-                dec_img[va] = score[va] >= sensitivity_threshold(y_img[tr], score[tr], 0.80)
-            runs.append((probs, decs, score, dec_img, np.any(np.stack(list(decs.values())), 0)))
+            runs.append((probs, decs, score, None, np.any(np.stack(list(decs.values())), 0)))
         # aggregate over seeds: mean metrics; pooled (seed-averaged) scores for CIs
         for vt in types[region]:
             yv = idx.loc[ids, vt].astype(int).to_numpy()
             ms = [metrics(yv, r[0][vt], r[1][vt]) for r in runs]
             report["types"][f"{region}:{vt}"] = {k: round(float(np.mean([m[k] for m in ms])), 3) for k in ms[0]} | {"n_pos": int(yv.sum())}
-        ms = [metrics(y_img, r[2], r[3]) for r in runs]
         ms_any = [metrics(y_img, r[2], r[4]) for r in runs]
         report.setdefault("regions_any_type", {})[region] = {
             k: round(float(np.mean([m[k] for m in ms_any])), 3) for k in ms_any[0]}
-        score = np.mean([r[2] for r in runs], 0); dec = np.mean([r[3] for r in runs], 0) >= 0.5
-        ci = bootstrap(y_img, score, dec)
-        report["regions"][region] = {k: [round(float(np.mean([m[k] for m in ms])), 3), [round(float(x), 3) for x in ci[k]]] for k in ms[0]}
-        report["regions"][region]["n"] = [len(ids), int(y_img.sum())]
-        region_scores[region] = (y_img, score, dec)
-        per_image = pd.DataFrame({"id": ids, "y": y_img, "score": score, "decision": dec.astype(int)})
+        score = np.mean([r[2] for r in runs], 0)
+        per_image = pd.DataFrame({"id": ids, "y": y_img, "score": score})
         for vt in types[region]:
             per_image[vt] = idx.loc[ids, vt].astype(int).to_numpy()
             per_image[f"p_{vt}"] = np.mean([r[0][vt] for r in runs], 0)
             per_image[f"d_{vt}"] = (np.mean([r[1][vt] for r in runs], 0) >= 0.5).astype(int)
         oof_rows.append(per_image)
-    y_all = np.concatenate([v[0] for v in region_scores.values()])
-    s_all = np.concatenate([v[1] for v in region_scores.values()]); d_all = np.concatenate([v[2] for v in region_scores.values()])
-    ci = bootstrap(y_all, s_all, d_all); m = metrics(y_all, s_all, d_all)
-    report["regions"]["overall"] = {k: [round(float(m[k]), 3), [round(float(x), 3) for x in ci[k]]] for k in m} | {"n": [len(y_all), int(y_all.sum())]}
+        region_scores[region] = (y_img, score)
+
+    # Image verdict: ONE threshold for both regions (the shipped policy), chosen on the studies outside
+    # the fold. A shared threshold beat separate ones out-of-fold (F1 0.656 against 0.636).
+    allrows = pd.concat(oof_rows)
+    y_all = allrows.y.to_numpy(int)
+    s_all = allrows.score.to_numpy(float)
+    g_all = allrows.id.str[:3].astype(int).to_numpy()
+    dec_runs = []
+    for seed in SEEDS:
+        d = np.zeros(len(y_all), bool)
+        for tr, va in StratifiedGroupKFold(5, shuffle=True, random_state=seed).split(s_all[:, None], y_all, g_all):
+            d[va] = s_all[va] >= sensitivity_threshold(y_all[tr], s_all[tr], 0.80)
+        dec_runs.append(d)
+    d_all = np.mean(dec_runs, 0) >= 0.5
+    allrows["decision"] = d_all.astype(int)
+    is_spine = allrows.id.str.endswith("spine").to_numpy()
+    for name, mask in (("spine", is_spine), ("hip", ~is_spine), ("overall", np.ones(len(y_all), bool))):
+        ms = [metrics(y_all[mask], s_all[mask], d[mask]) for d in dec_runs]
+        ci = bootstrap(y_all[mask], s_all[mask], d_all[mask])
+        report["regions"][name] = {k: [round(float(np.mean([m[k] for m in ms])), 3),
+                                       [round(float(x), 3) for x in ci[k]]] for k in ms[0]}
+        report["regions"][name]["n"] = [int(mask.sum()), int(y_all[mask].sum())]
+    oof_rows = [allrows]
 
     print("Per violation type (mean over 10 CV repeats):")
     for k, v in report["types"].items():
