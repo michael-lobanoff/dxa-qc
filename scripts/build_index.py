@@ -67,12 +67,12 @@ def main():
         seen.add((study, digest))
 
         region = detect_region(img)
-        mm, mm_src = pixel_spacing_mm(ds, img.shape)
+        (mm_x, mm_y), mm_src = pixel_spacing_mm(ds, img.shape)
         implant = bool((img >= img.max() - 2).mean() > METAL_FRACTION) and region != "spine"
         row = {"path": str(path.relative_to(args.root)), "study": study, "n": int(labels.loc[study, "n"]),
                "study_uid": ds.StudyInstanceUID, "image_uid": ds.SOPInstanceUID,
                "rows": img.shape[0], "cols": img.shape[1], "region": region, "implant": implant,
-               "mm_per_px": round(mm, 4), "mm_per_px_source": mm_src}
+               "mm_per_px": round(mm_x, 4), "mm_per_px_y": round(mm_y, 4), "mm_per_px_source": mm_src}
         lab = labels.loc[study]
         for key, col in REGION_LABELS[region].items():
             row[key] = lab[col]

@@ -23,6 +23,11 @@ from dxaqc.features import hip_features
 from dxaqc.hipcrop import hip_crop
 from dxaqc.hog import hog
 
+
+def spacing(idx, i):
+    """(mm per pixel along x, along y) for one image, as stored by build_index."""
+    return float(idx.loc[i, "mm_per_px"]), float(idx.loc[i, "mm_per_px_y"])
+
 SEEDS = range(300, 310)
 
 
@@ -103,13 +108,13 @@ def main():
     sp = [i for i in sorted(oof) if i.endswith("spine") and not pd.isna(idx.loc[i, "y"])]
     S = []
     for i in sp:
-        S.append(spine_measurements(img(i), oof[i]["points"], oof[i]["conf"], idx.loc[i, "mm_per_px"]))
+        S.append(spine_measurements(img(i), oof[i]["points"], oof[i]["conf"], spacing(idx, i)))
     S = pd.DataFrame(S, index=sp)
     # ---------------- hip features (rotation score: HOG + RF, trained on manual-keypoint crops, applied to detector crops)
     hp = [i for i in sorted(oof) if "hip" in i and not kp[i]["flags"].get("skip") and not pd.isna(idx.loc[i, "y"])]
     Hrows = []
     for i in hp:
-        f = hip_features(oof[i]["points"], (idx.loc[i, "rows"], idx.loc[i, "cols"]), i[4:], idx.loc[i, "mm_per_px"])
+        f = hip_features(oof[i]["points"], (idx.loc[i, "rows"], idx.loc[i, "cols"]), i[4:], spacing(idx, i))
         Hrows.append({"margin_bottom": f["margin_bottom"], "margin_top": f["margin_top"], "head_gt_width": f.get("head_gt_width"),
                       "isch_conf": oof[i]["conf"]["isch"], "gt_conf": oof[i]["conf"]["gt_lat"]})
     H = pd.DataFrame(Hrows, index=hp).astype(float)

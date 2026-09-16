@@ -61,8 +61,8 @@ def to_structured_report(row, ref: pydicom.Dataset):
         items.append(_text_item(finding, f"Нарушения: {row['violation_type']}."))
     if row.get("details"):
         items.append(_text_item(finding, f"Измерения: {row['details']}."))
-    if row.get("quality_score") is not None:
-        items.append(_text_item(finding, f"Вероятность нарушения по модели: {row['quality_score']:.2f}."))
+    if row.get("quality_prob") is not None:
+        items.append(_text_item(finding, f"Вероятность нарушения по модели: {row['quality_prob']:.2f}."))
     img = Dataset()
     img.RelationshipType, img.ValueType = "CONTAINS", "IMAGE"
     img.ConceptNameCodeSequence = [_code("121112", "DCM", "Source of Measurement")]

@@ -13,13 +13,18 @@ def _dist_to_line(p, a, b):
 
 
 def hip_features(p, shape, side, mm_per_px=None):
-    """Positioning / rotation cues. Orientation is normalised so that +x points medially (towards the pelvis)."""
-    mm_per_px = G.MM_PER_PX if mm_per_px is None else mm_per_px
+    """Positioning / rotation cues. Orientation is normalised so that +x points medially (towards the pelvis).
+
+    Distances are computed on millimetre coordinates (x*sx, y*sy); angles stay in pixel coordinates,
+    because that is what the expert sees on the displayed image and judges the criteria against.
+    """
+    sx, sy = G.axes_mm(mm_per_px)
     f = {}
     m = G.hip_margins_mm(p, shape, side, mm_per_px)
     f.update({f"margin_{k}": v for k, v in m.items()})
     s = -1 if side == "hip_left" else 1
-    q = {k: (None if v is None else (s * v[0], v[1])) for k, v in p.items()}
+    q = {k: (None if v is None else (s * v[0] * sx, v[1] * sy)) for k, v in p.items()}   # mm, medial = +x
+    qpx = {k: (None if v is None else (s * v[0], v[1])) for k, v in p.items()}           # pixels, for angles
     sp, sd = q.get("shaft_p"), q.get("shaft_d")
     f["lt_absent"] = float(q.get("lt") is None)
     f["missing"] = float(sum(q.get(k) is None for k in ("gt_top", "fn_c", "isch")))
@@ -27,18 +32,19 @@ def hip_features(p, shape, side, mm_per_px=None):
         # ISCD / JNMT positioning guidance: the long axis of the femur should be parallel to the long
         # axis of the table, i.e. vertical on the image. Reported as a measurement; on its own it
         # separates rotation labels only weakly (AUC 0.67) and adds nothing to the rotation model.
-        f["shaft_angle"] = abs(math.degrees(math.atan2(sd[0] - sp[0], sd[1] - sp[1])))
+        f["shaft_angle"] = abs(math.degrees(math.atan2(qpx["shaft_d"][0] - qpx["shaft_p"][0],
+                                                       qpx["shaft_d"][1] - qpx["shaft_p"][1])))
         # the shaft axis runs downwards; medial side = right of the upward direction sd->sp
         if q.get("lt"):
-            f["lt_protrusion"] = -_dist_to_line(q["lt"], sd, sp) * mm_per_px
+            f["lt_protrusion"] = -_dist_to_line(q["lt"], sd, sp)
         if q.get("fh_c"):
-            f["neck_offset"] = -_dist_to_line(q["fh_c"], sd, sp) * mm_per_px   # femoral offset in projection
+            f["neck_offset"] = -_dist_to_line(q["fh_c"], sd, sp)   # femoral offset in projection
         if q.get("fh_c") and q.get("fn_c"):
             shaft = np.subtract(sp, sd); neck = np.subtract(q["fh_c"], q["fn_c"])
             cos = np.dot(shaft, neck) / (np.linalg.norm(shaft) * np.linalg.norm(neck) + 1e-6)
             f["neck_shaft_angle"] = 180 - math.degrees(math.acos(np.clip(cos, -1, 1)))
     if q.get("fh_c") and q.get("gt_lat"):
-        f["head_gt_width"] = abs(q["fh_c"][0] - q["gt_lat"][0]) * mm_per_px
+        f["head_gt_width"] = abs(q["fh_c"][0] - q["gt_lat"][0])
     return f
 
 
@@ -56,7 +62,7 @@ def spine_curvature(img, points, window=60, mm_per_px=None):
     import cv2
     from scipy.ndimage import median_filter
 
-    mm_per_px = G.MM_PER_PX if mm_per_px is None else mm_per_px
+    mm_per_px = G.axes_mm(mm_per_px)[0]      # lateral deviation: horizontal scale
     t, b = points.get("col_top"), points.get("col_bottom")
     if not t or not b or b[1] - t[1] < 30:
         return None

@@ -15,8 +15,10 @@ from .hog import hog
 from .pixels import pixel_spacing_mm
 from .region import RegionClassifier
 
-REGION_RU = {"spine": "поясничный отдел позвоночника", "hip_left": "проксимальный отдел левого бедра",
-             "hip_right": "проксимальный отдел правого бедра"}
+# разъяснения V2, вопрос 15: only these two values, the side is not reported (it is still detected
+# internally, because the lateral margin of the hip depends on which side it is).
+REGION_RU = {"spine": "Поясничный отдел позвоночника", "hip_left": "Проксимальный отдел бедра",
+             "hip_right": "Проксимальный отдел бедра"}
 IMPLANT_METAL_FRACTION = 0.015  # saturated share: implants 0.018-0.12 on the training set, normal hips < 0.012
 
 
@@ -78,6 +80,11 @@ class QCService:
         # Flagged by the image score while no single type crossed its own threshold: the named type is
         # then the most probable cause, and the report says so instead of pretending to be sure.
         presumed = bool(quality_class and not any(decs.values()))
+        # An image with the densitometer's own ROI boxes printed on it cannot be judged for foreign
+        # bodies: the printed lines and labels are thin and bright exactly like metal. Say so instead.
+        if meas.get("printed_markup") and "v_artifact" in violations:
+            violations.remove("v_artifact")
+            quality_class = int(bool(violations))
         # ТЗ 2.3 (upper coverage: mid-Th12 must be in the frame) is checked by rule, not by a learned
         # model: no study in the training set was marked bad for it, so there is nothing to fit.
         if region == "spine" and meas.get("top_coverage_ok") is False:
@@ -93,7 +100,7 @@ class QCService:
         and a Basic Text SR <image_uid>_sr.dcm with the findings."""
         t0 = time.time()
         row = {"path_to_study": study_dir, "file": str(path), "study_uid": "", "image_uid": "", "anatomical_region": "",
-               "quality_class": None, "quality_score": None, "violation_type": "", "violation_codes": "",
+               "quality_class": None, "quality_prob": None, "violation_type": "", "violation_codes": "",
                "processing_status": "Failure", "time_of_processing": None, "details": "", "error": "",
                "mm_per_px": None, "mm_per_px_source": ""}
         try:
@@ -102,7 +109,7 @@ class QCService:
             row["image_uid"] = str(getattr(ds, "SOPInstanceUID", ""))
             mm, mm_src = pixel_spacing_mm(ds, img.shape)
             r = self.analyse(img, mm)
-            row["mm_per_px"] = round(mm, 4)
+            row["mm_per_px"] = f"{mm[0]:.3f}x{mm[1]:.3f}" if mm[0] != mm[1] else round(mm[0], 4)
             row["mm_per_px_source"] = mm_src
             if r.get("unsupported"):
                 row.update(anatomical_region="не определена", quality_class=0,
@@ -115,7 +122,7 @@ class QCService:
             if r["implant"]:
                 row.update(quality_class=0, violation_type="эндопротез: оценка качества не проводится", violation_codes="implant")
             else:
-                row.update(quality_class=r["quality_class"], quality_score=round(r["score"], 4),
+                row.update(quality_class=r["quality_class"], quality_prob=round(r["score"], 4),
                            violation_type="; ".join(NAMES_RU[v] for v in r["violations"]),
                            violation_codes=";".join(r["violations"]))
                 m = r["measurements"]
@@ -127,6 +134,8 @@ class QCService:
                         bits.append(f"над гребнями {m['span_vert']:.1f} позвонка")
                     if m.get("vert_pitch_mm"):
                         bits.append(f"высота позвонка {m['vert_pitch_mm']:.0f} мм")
+                    if m.get("printed_markup"):
+                        bits.append("на снимке впечатана разметка аппарата: инородные тела не оцениваются")
                     row["details"] = "; ".join(bits)
                 else:
                     ru = {"top": "сверху", "bottom": "снизу", "lateral": "сбоку"}

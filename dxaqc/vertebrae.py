@@ -16,6 +16,7 @@ keeps using col_top / col_bottom.
 """
 import numpy as np
 
+from .geometry import axes_mm
 from .pixels import DEFAULT_MM_PER_PX
 
 # Anatomical bounds on the vertebral pitch (body + disc) of an adult lumbar spine. Searching in mm
@@ -76,7 +77,7 @@ def find(img, points, mm_per_px=None):
     Returns None when the axis is missing or no regular train is found, else
     {points: [[x, y], ...] top to bottom, pitch_px, irregularity, n}.
     """
-    mm = DEFAULT_MM_PER_PX if not mm_per_px else float(mm_per_px)
+    mm = DEFAULT_MM_PER_PX if not mm_per_px else axes_mm(mm_per_px)[1]   # pitch runs along the spine
     periods = np.arange(PITCH_MM[0] / mm, PITCH_MM[1] / mm, 1.0)
     top, bot = points.get("col_top"), points.get("col_bottom")
     if not top or not bot:

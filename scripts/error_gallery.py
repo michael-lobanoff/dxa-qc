@@ -16,6 +16,11 @@ import matplotlib.pyplot as plt  # noqa: E402
 from dxaqc.decision import hip_measurements, spine_measurements  # noqa: E402
 from dxaqc.visualize import render_overlay  # noqa: E402
 
+
+def spacing(idx, i):
+    """(mm per pixel along x, along y) for one image, as stored by build_index."""
+    return float(idx.loc[i, "mm_per_px"]), float(idx.loc[i, "mm_per_px_y"])
+
 TYPES = {"v_axis": "spine", "v_pos": "spine", "v_artifact": "spine", "v_roi": "hip", "v_posrot": "hip"}
 
 
@@ -36,7 +41,7 @@ def main():
             for ax, (i, r) in zip(axs[row], sub.iterrows()):
                 img = np.asarray(Image.open(f"data/annotation/images/{i}.png"))
                 p, c = oof[i]["points"], oof[i]["conf"]
-                mm = idx.loc[i, "mm_per_px"]
+                mm = spacing(idx, i)
                 meas = (spine_measurements(img, p, c, mm) if region == "spine"
                         else hip_measurements(img, p, c, i[4:], mm))
                 viol = [t for t in TYPES if TYPES[t] == region and r.get(f"d_{t}") == 1]

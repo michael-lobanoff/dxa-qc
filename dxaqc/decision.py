@@ -10,7 +10,7 @@ from sklearn.metrics import f1_score
 
 from .artifacts import artifact_features
 from .features import hip_features, spine_curvature
-from .geometry import MM_PER_PX, spine_rules
+from .geometry import MM_PER_PX, axes_mm, spine_rules
 from .vertebrae import find as find_vertebrae
 
 TYPES = {
@@ -18,9 +18,11 @@ TYPES = {
               "v_artifact": (["area_top", "n_out", "max_len"], [1, 1, 1])},
     "hip": {"v_roi": (["margin_bottom", "margin_top"], [-1, -1]), "v_posrot": (["rotation"], [1])},
 }
-NAMES_RU = {"v_axis": "наклон оси позвоночника > допустимого", "v_pos": "некорректная укладка (не захвачены гребни подвздошных костей)",
-            "v_artifact": "инородные тела / артефакты", "v_roi": "недостаточное поле вокруг области интереса",
-            "v_posrot": "позиционирование / ротация бедра"}
+# Wording fixed by the organisers (разъяснения V2, вопрос 6): exactly these strings, several joined
+# by "; ", empty when there is no violation. macro-F1 is computed over this list.
+NAMES_RU = {"v_axis": "Не выравнена ось позвоночника", "v_pos": "Некорректная укладка",
+            "v_artifact": "Присутствуют посторонние предметы", "v_roi": "Некорректная область интереса",
+            "v_posrot": "Некорректная укладка"}
 
 
 def spine_measurements(img, points, conf, mm_per_px=None):
@@ -35,10 +37,11 @@ def spine_measurements(img, points, conf, mm_per_px=None):
     return {"abs_tilt": abs(r["tilt_deg"] or 0.0), "tilt_deg": r["tilt_deg"],
             "curvature": spine_curvature(img, points, mm_per_px=mm_per_px) or 0.0,
             "span_mm": r["span_mm"], "span_vert": r["span_vert"], "top_coverage_ok": r["top_coverage_ok"],
-            "vert_pitch_mm": None if vert is None else vert["pitch_px"] * mm_per_px,
+            "vert_pitch_mm": None if vert is None else vert["pitch_px"] * axes_mm(mm_per_px)[1],
             "vert_n": None if vert is None else vert["n"], "vert_points": None if vert is None else vert["points"],
             "crest_conf": min(conf.get("crest_a", 0.0), conf.get("crest_b", 0.0)),
-            "area_top": a["area_top"], "n_out": a["n_out"], "max_len": a["max_len"]}
+            "area_top": a["area_top"], "n_out": a["n_out"], "max_len": a["max_len"],
+            "printed_markup": a["n_overlay_lines"] >= 3}
 
 
 def hip_measurements(img, points, conf, side, mm_per_px=None):

@@ -43,7 +43,7 @@ def detector_errors():
            **json.loads(Path("data/train/kp_oof_hip.json").read_text())}
     rows = []
     for i, d in oof.items():
-        mm = float(idx.loc[i, "mm_per_px"])       # pixel size of that image (DICOM tag)
+        mm = float(idx.loc[i, "mm_per_px_y"])       # pixel size of that image (DICOM tag)
         for k, p in d["points"].items():
             q = kp[i]["points"].get(k)
             if p and q:

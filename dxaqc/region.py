@@ -25,11 +25,16 @@ from .hog import hog
 CLASSES = ["spine", "hip_left", "hip_right"]
 MIRROR = {"spine": "spine", "hip_left": "hip_right", "hip_right": "hip_left"}
 NEIGHBOURS = 5
-# Refusal thresholds, calibrated on the 252 training scans (novelty <= 0.80, autocorrelation >= 0.985)
-# against deliberately foreign inputs (noise 0.00, blank frame, gradient and 90°-rotated scans 1.07-1.25).
+# Refusal thresholds. The structure measure is the correlation at a 4 px lag after a light blur, which
+# is what separates anatomy from noise without depending on how strongly an export was smoothed:
+# organisers' scans 0.95-0.97, public DXA scans from another centre 0.74-0.93, white noise 0.00-0.44.
+# Raw neighbouring-pixel correlation was tried first and rejected: it refused every image of the
+# external DXA set (0.91 against our 0.997) purely because their export carries finer pixel noise.
 MIN_STD = 1.0             # a blank frame carries no anatomy
-MIN_AUTOCORR = 0.97       # neighbouring pixels of any radiograph are correlated; noise is not
-MAX_NOVELTY = 1.0         # distance to the nearest training scans, 1.0 = the oddest scan we trained on
+AUTOCORR_LAG = 4
+AUTOCORR_BLUR = 1.0
+MIN_AUTOCORR = 0.60       # halfway between the noisiest real scan (0.74) and the smoothest noise (0.44)
+MAX_NOVELTY = 1.05        # distance to the nearest training scans; 1.0 = the oddest scan we trained on
 
 
 def features(img):
@@ -78,8 +83,10 @@ class RegionClassifier:
         stats = {"std": std, "autocorr": 0.0, "novelty": 0.0}
         if std < MIN_STD:
             return False, "пустое изображение", stats
-        z = (a - a.mean()) / std
-        stats["autocorr"] = float(((z[:, :-1] * z[:, 1:]).mean() + (z[:-1] * z[1:]).mean()) / 2)
+        b = cv2.GaussianBlur(a, (0, 0), AUTOCORR_BLUR)
+        z = (b - b.mean()) / (b.std() + 1e-6)
+        k = AUTOCORR_LAG
+        stats["autocorr"] = float(((z[:, :-k] * z[:, k:]).mean() + (z[:-k] * z[k:]).mean()) / 2)
         stats["novelty"] = self.novelty(img)
         if stats["autocorr"] < MIN_AUTOCORR:
             return False, "изображение не похоже на рентгеновский снимок", stats

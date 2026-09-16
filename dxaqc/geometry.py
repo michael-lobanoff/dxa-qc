@@ -28,6 +28,15 @@ SPINE_POINTS = ["col_top", "col_bottom", "crest_a", "crest_b"]
 HIP_POINTS = ["fh_c", "fh_top", "fn_c", "gt_top", "gt_lat", "lt", "isch", "shaft_p", "shaft_d"]
 
 
+def axes_mm(spacing):
+    """Accept a single mm/px value or an (x, y) pair; DXA exports may in principle be anisotropic."""
+    if spacing is None:
+        return MM_PER_PX, MM_PER_PX
+    if isinstance(spacing, (int, float)):
+        return float(spacing), float(spacing)
+    return float(spacing[0]), float(spacing[1])
+
+
 def inside(p, shape) -> bool:
     h, w = shape
     return p is not None and 0 <= p[0] < w and 0 <= p[1] < h
@@ -57,7 +66,7 @@ def spine_span_px(kp):
 
 def spine_span_mm(kp, mm_per_px=MM_PER_PX):
     span = spine_span_px(kp)
-    return None if span is None else span * mm_per_px
+    return None if span is None else span * axes_mm(mm_per_px)[1]     # vertical distance
 
 
 def spine_rules(kp, shape, mm_per_px=MM_PER_PX, pitch_px=None):
@@ -89,11 +98,12 @@ def hip_margins_mm(kp, shape, side, mm_per_px=MM_PER_PX):
     lateral side (greater trochanter) faces the image left.
     """
     h, w = shape
+    sx, sy = axes_mm(mm_per_px)
     head, low, lat = kp.get("fh_top"), first(kp, ["lt", "shaft_p"]), kp.get("gt_lat")
     return {
-        "top": None if head is None else head[1] * mm_per_px,
-        "bottom": None if low is None else (h - low[1]) * mm_per_px,
-        "lateral": None if lat is None else (lat[0] if side == "hip_right" else w - lat[0]) * mm_per_px,
+        "top": None if head is None else head[1] * sy,
+        "bottom": None if low is None else (h - low[1]) * sy,
+        "lateral": None if lat is None else (lat[0] if side == "hip_right" else w - lat[0]) * sx,
     }
 
 

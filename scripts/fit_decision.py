@@ -19,6 +19,11 @@ from dxaqc.hipcrop import hip_crop
 from dxaqc.hog import hog
 
 
+def spacing(idx, i):
+    """(mm per pixel along x, along y) for one image, as stored by build_index."""
+    return float(idx.loc[i, "mm_per_px"]), float(idx.loc[i, "mm_per_px_y"])
+
+
 def rotation_forest():
     return RandomForestClassifier(500, min_samples_leaf=3, max_features=0.1, class_weight="balanced_subsample", random_state=0, n_jobs=4)
 
@@ -51,9 +56,9 @@ def main():
         for i in ids:
             p, c = oof[i]["points"], oof[i]["conf"]
             if region == "spine":
-                meas[i] = spine_measurements(img[i], p, c, idx.loc[i, "mm_per_px"])
+                meas[i] = spine_measurements(img[i], p, c, spacing(idx, i))
             else:
-                meas[i] = hip_measurements(img[i], p, c, i[4:], idx.loc[i, "mm_per_px"])
+                meas[i] = hip_measurements(img[i], p, c, i[4:], spacing(idx, i))
                 meas[i]["rotation"] = rot_of[i]
         feats = {vt: np.array([[0.0 if meas[i].get(c) is None else float(meas[i][c]) for c in cols] for i in ids])
                  for vt, (cols, _) in TYPES[region].items()}

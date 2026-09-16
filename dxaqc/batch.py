@@ -7,7 +7,7 @@ from pathlib import Path
 import pandas as pd
 
 COLUMNS = ["path_to_study", "study_uid", "image_uid", "anatomical_region", "quality_class", "violation_type",
-           "processing_status", "time_of_processing", "quality_score", "violation_codes", "details", "mm_per_px", "mm_per_px_source", "file", "error"]
+           "processing_status", "time_of_processing", "quality_prob", "violation_codes", "details", "mm_per_px", "mm_per_px_source", "file", "error"]
 
 
 def _zip_name(info):

@@ -13,8 +13,8 @@ from dxaqc.service import QCService, read_dicom_image
 
 ROOT = Path(__file__).resolve().parents[1]
 SAMPLES = sorted((ROOT / "data/test_sample").glob("*.dcm"))
-EXPECTED_REGION = {"ПОП": "поясничный отдел позвоночника", "ППОБ": "проксимальный отдел правого бедра",
-                   "ЛПОБ": "проксимальный отдел левого бедра"}
+EXPECTED_REGION = {"ПОП": "Поясничный отдел позвоночника", "ППОБ": "Проксимальный отдел бедра",
+                   "ЛПОБ": "Проксимальный отдел бедра"}
 
 
 @pytest.fixture(scope="module")
@@ -37,7 +37,7 @@ def test_organizer_samples_regions(service):
         row = service.process_file(p)
         assert row["processing_status"] == "Success", row["error"]
         assert row["anatomical_region"] == EXPECTED_REGION[p.stem.split("_")[1]]
-        assert row["quality_class"] in (0, 1) and 0 <= row["quality_score"] <= 1
+        assert row["quality_class"] in (0, 1) and 0 <= row["quality_prob"] <= 1
         assert row["image_uid"] and row["study_uid"]
 
 
@@ -84,7 +84,7 @@ def test_reproducible(service):
     b = [service.process_file(p) for p in SAMPLES]
     for r1, r2 in zip(a, b):
         assert (r1["quality_class"], r1["violation_codes"], r1["details"]) == (r2["quality_class"], r2["violation_codes"], r2["details"])
-        assert abs(r1["quality_score"] - r2["quality_score"]) < 1e-6
+        assert abs(r1["quality_prob"] - r2["quality_prob"]) < 1e-6
 
 
 def test_pixel_spacing_from_exposed_area():
@@ -95,12 +95,23 @@ def test_pixel_spacing_from_exposed_area():
 
     ds = pydicom.Dataset()
     ds.ExposedArea = [180, 175]
-    mm, src = pixel_spacing_mm(ds, (289, 300))
-    assert src == "ExposedArea" and abs(mm - 0.603) < 0.01
+    (sx, sy), src = pixel_spacing_mm(ds, (289, 300))
+    assert src == "ExposedArea" and abs(sx - 0.600) < 0.01 and abs(sy - 0.606) < 0.01
     ds.ExposedArea = [520, 595]                      # whole scan table, repeated for every image
-    mm, src = pixel_spacing_mm(ds, (289, 300))
-    assert src == "default" and mm == DEFAULT_MM_PER_PX
+    (sx, sy), src = pixel_spacing_mm(ds, (289, 300))
+    assert src == "default" and sx == sy == DEFAULT_MM_PER_PX
     assert pixel_spacing_mm(pydicom.Dataset(), (289, 300))[1] == "default"
+
+
+def test_pixel_spacing_override(monkeypatch):
+    """The organisers quote an anisotropic 0.6 x 1.05 mm pixel; one variable switches the service to it."""
+    import pydicom
+
+    from dxaqc.pixels import pixel_spacing_mm
+
+    monkeypatch.setenv("DXAQC_PIXEL_MM", "0.6,1.05")
+    (sx, sy), src = pixel_spacing_mm(pydicom.Dataset(), (289, 300))
+    assert (sx, sy) == (0.6, 1.05) and src == "DXAQC_PIXEL_MM"
 
 
 def test_vertebrae_pitch_is_anatomical(service):

@@ -18,8 +18,8 @@ def table(points_by_id, idx):
     for image_id, p in points_by_id.items():
         r = idx.loc[image_id]
         shape = (r.rows, r.cols)
-        f = (spine_features(p, shape, r.mm_per_px) if r.region == "spine"
-             else hip_features(p, shape, r.region, r.mm_per_px))
+        f = (spine_features(p, shape, (r.mm_per_px, r.mm_per_px_y)) if r.region == "spine"
+             else hip_features(p, shape, r.region, (r.mm_per_px, r.mm_per_px_y)))
         rows.append({"id": image_id, **f})
     return pd.DataFrame(rows).set_index("id")
 
