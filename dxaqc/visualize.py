@@ -33,7 +33,7 @@ def render_overlay(img, result):
     h, w = img.shape
     rgb = cv2.cvtColor(cv2.resize(img, (w * SCALE, h * SCALE), interpolation=cv2.INTER_CUBIC), cv2.COLOR_GRAY2RGB)
     p, region = result["points"], result["region"]
-    bad = bool(result.get("violations"))
+    bad = bool(result.get("quality_class"))
     if region == "spine":
         if p.get("col_top") and p.get("col_bottom"):
             cv2.line(rgb, _pt(p["col_top"]), _pt(p["col_bottom"]), RED if "v_axis" in result["violations"] else CYAN, 2, cv2.LINE_AA)
@@ -89,6 +89,7 @@ def to_secondary_capture(rgb, ref: pydicom.Dataset, description="DXA QC overlay"
     meta.MediaStorageSOPInstanceUID = generate_uid()
     meta.TransferSyntaxUID = ExplicitVRLittleEndian
     ds = FileDataset(None, {}, file_meta=meta, preamble=b"\0" * 128)
+    ds.SpecificCharacterSet = "ISO_IR 192"   # copied attributes carry Russian text (StudyDescription)
     for tag in ("PatientID", "PatientName", "PatientBirthDate", "PatientSex", "StudyInstanceUID", "StudyDate",
                 "StudyTime", "AccessionNumber", "StudyID", "StudyDescription"):
         if tag in ref:

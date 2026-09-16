@@ -79,15 +79,38 @@ class Monotone:
         return np.stack([1 - p, p], 1)
 
 
-class DecisionModel:
-    """Fitted per-type models + thresholds. feats: {type: X (n, k)} in the TYPES column order."""
+def sensitivity_threshold(y, p, target=0.80):
+    """Most specific threshold that still reaches the target sensitivity.
 
-    def fit(self, region, feats, labels):
+    With 6-36 positives per type the F1-optimal threshold jumps between folds; a sensitivity target
+    picks the same region of the curve far more stably (see scripts/threshold_policy.py).
+    """
+    grid = np.unique(np.quantile(p, np.linspace(0.02, 0.98, 97)))
+    pos = max(int((y == 1).sum()), 1)
+    ok = [t for t in grid if ((p >= t) & (y == 1)).sum() / pos >= target]
+    return float(max(ok)) if ok else float(grid.min())
+
+
+class DecisionModel:
+    """Fitted per-type models + thresholds. feats: {type: X (n, k)} in the TYPES column order.
+
+    The image verdict uses its own threshold on the noisy-OR score: "any type fired" inherits the
+    instability of every per-type threshold at once, and measured out-of-fold it is both less
+    sensitive and no better on F1 (0.63 vs 0.65).
+    """
+
+    def fit(self, region, feats, labels, y_img=None):
         self.region, self.models, self.thresholds = region, {}, {}
+        probs = {}
         for vt, (cols, signs) in TYPES[region].items():
             m = Monotone(signs).fit(feats[vt], labels[vt])
             self.models[vt] = m
-            self.thresholds[vt] = float(best_threshold(labels[vt], m.predict_proba(feats[vt])[:, 1]))
+            probs[vt] = m.predict_proba(feats[vt])[:, 1]
+            self.thresholds[vt] = float(best_threshold(labels[vt], probs[vt]))
+        score = 1 - np.prod([1 - probs[vt] for vt in probs], axis=0)
+        y_img = np.max([labels[vt] for vt in labels], axis=0) if y_img is None else np.asarray(y_img)
+        self.image_thresholds = {"screening": sensitivity_threshold(y_img, score, 0.80),
+                                 "balanced": float(best_threshold(y_img, score))}
         return self
 
     def predict(self, meas):
@@ -99,3 +122,18 @@ class DecisionModel:
             decs[vt] = probs[vt] >= self.thresholds[vt]
         score = 1 - float(np.prod([1 - p for p in probs.values()]))
         return probs, decs, score
+
+    def verdict(self, probs, decs, score, policy="screening"):
+        """(quality_class, violation types) for one image.
+
+        The class comes from the image threshold; the listed types are those over their own
+        thresholds. When the image is flagged but no single type crosses its threshold, the most
+        probable type is named — a technician needs to know what to re-check, and an empty
+        "нарушение без типа" row would be useless.
+        """
+        t = self.image_thresholds.get(policy, self.image_thresholds["screening"])
+        bad = score >= t
+        types = [vt for vt, d in decs.items() if d] if bad else []
+        if bad and not types and probs:
+            types = [max(probs, key=probs.get)]
+        return int(bad), types

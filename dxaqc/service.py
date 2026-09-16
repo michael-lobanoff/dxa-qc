@@ -1,4 +1,5 @@
 """The QC service: DICOM image -> region -> landmarks -> measurements -> per-violation decisions."""
+import os
 import pickle
 import time
 from pathlib import Path
@@ -37,7 +38,10 @@ def read_dicom_image(path):
 
 
 class QCService:
-    def __init__(self, model_dir="models", device=None):
+    def __init__(self, model_dir="models", device=None, policy=None):
+        """policy: 'screening' (default, sensitivity ~0.80) or 'balanced' (F1-optimal);
+        override per run with DXAQC_POLICY."""
+        self.policy = policy or os.environ.get("DXAQC_POLICY", "screening")
         model_dir = Path(model_dir)
         self.region = RegionClassifier.load(model_dir / "region.pkl")
         self.detector = KeypointDetector(model_dir, device)
@@ -57,19 +61,25 @@ class QCService:
             meas = spine_measurements(img, points, conf, mm_per_px)
         else:
             if float((img >= img.max() - 2).mean()) > IMPLANT_METAL_FRACTION:
-                out.update(implant=True, measurements={}, probs={}, violations=[], score=None)
+                out.update(implant=True, measurements={}, probs={}, violations=[], score=None, quality_class=0)
                 return out
             meas = hip_measurements(img, points, conf, region, mm_per_px)
             crop, _ = hip_crop(img, points, region)
             meas["rotation"] = float(self.rotation.predict_proba(hog(crop, self.hog_cell)[None])[0, 1])
-        probs, decs, score = self.decision["spine" if region == "spine" else "hip"].predict(meas)
-        violations = [vt for vt, d in decs.items() if d]
+        model = self.decision["spine" if region == "spine" else "hip"]
+        probs, decs, score = model.predict(meas)
+        quality_class, violations = model.verdict(probs, decs, score, self.policy)
+        # Flagged by the image score while no single type crossed its own threshold: the named type is
+        # then the most probable cause, and the report says so instead of pretending to be sure.
+        presumed = bool(quality_class and not any(decs.values()))
         # ТЗ 2.3 (upper coverage: mid-Th12 must be in the frame) is checked by rule, not by a learned
         # model: no study in the training set was marked bad for it, so there is nothing to fit.
-        if region == "spine" and meas.get("top_coverage_ok") is False and "v_pos" not in violations:
-            violations.append("v_pos")
-            score = max(score, 0.9)
-        out.update(implant=False, measurements=meas, probs=probs, violations=violations, score=score)
+        if region == "spine" and meas.get("top_coverage_ok") is False:
+            quality_class, score = 1, max(score, 0.9)
+            if "v_pos" not in violations:
+                violations.append("v_pos")
+        out.update(implant=False, measurements=meas, probs=probs, violations=violations, score=score,
+                   quality_class=quality_class, presumed=presumed)
         return out
 
     def process_file(self, path, study_dir="", vis_dir=None):
@@ -92,7 +102,7 @@ class QCService:
             if r["implant"]:
                 row.update(quality_class=0, violation_type="эндопротез: оценка качества не проводится", violation_codes="implant")
             else:
-                row.update(quality_class=int(bool(r["violations"])), quality_score=round(r["score"], 4),
+                row.update(quality_class=r["quality_class"], quality_score=round(r["score"], 4),
                            violation_type="; ".join(NAMES_RU[v] for v in r["violations"]),
                            violation_codes=";".join(r["violations"]))
                 m = r["measurements"]
@@ -109,6 +119,8 @@ class QCService:
                     ru = {"top": "сверху", "bottom": "снизу", "lateral": "сбоку"}
                     row["details"] = "; ".join(f"поле {ru[k]} {m[f'margin_{k}']:.0f} мм" for k in ("top", "bottom", "lateral")
                                                if m.get(f"margin_{k}") is not None)
+                if r.get("presumed"):
+                    row["details"] = (row["details"] + "; " if row["details"] else "") + "тип указан как наиболее вероятный"
             row["processing_status"] = "Success"
             if vis_dir is not None:
                 from PIL import Image

@@ -58,9 +58,11 @@ def main():
         feats = {vt: np.array([[0.0 if meas[i].get(c) is None else float(meas[i][c]) for c in cols] for i in ids])
                  for vt, (cols, _) in TYPES[region].items()}
         labels = {vt: idx.loc[ids, vt].astype(int).to_numpy() for vt in TYPES[region]}
-        out[region] = DecisionModel().fit(region, feats, labels)
-        print(f"{region}: {len(ids)} images; thresholds on calibrated probability:",
-              {vt: round(t, 3) for vt, t in out[region].thresholds.items()})
+        y_img = idx.loc[ids, "y"].astype(int).to_numpy()
+        out[region] = DecisionModel().fit(region, feats, labels, y_img)
+        print(f"{region}: {len(ids)} images; per-type thresholds:",
+              {vt: round(t, 3) for vt, t in out[region].thresholds.items()},
+              "| image thresholds:", {k: round(v, 3) for k, v in out[region].image_thresholds.items()})
     Path("models").mkdir(exist_ok=True)
     with open("models/decision.pkl", "wb") as f:
         pickle.dump(out, f)

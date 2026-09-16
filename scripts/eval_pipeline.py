@@ -18,7 +18,7 @@ from sklearn.model_selection import StratifiedGroupKFold
 from sklearn.pipeline import make_pipeline
 from sklearn.preprocessing import StandardScaler
 
-from dxaqc.decision import TYPES, spine_measurements
+from dxaqc.decision import TYPES, sensitivity_threshold, spine_measurements
 from dxaqc.features import hip_features
 from dxaqc.hipcrop import hip_crop
 from dxaqc.hog import hog
@@ -141,14 +141,21 @@ def main():
                     prob, dec = cv_type(F[feats].to_numpy(float), yv, groups, lambda: Monotone(signs, lr_weights=True), seed)
                 probs[vt], decs[vt] = prob, dec
             score = 1 - np.prod(1 - np.stack(list(probs.values())), 0)   # noisy-OR: "any violation"
-            dec_img = np.any(np.stack(list(decs.values())), 0)
-            runs.append((probs, decs, score, dec_img))
+            # Image verdict: a threshold on that score, chosen on the other studies of the split
+            # (the shipped policy, decision.sensitivity_threshold). "Any type fired" is kept for comparison.
+            dec_img = np.zeros(len(y_img), bool)
+            for tr, va in StratifiedGroupKFold(5, shuffle=True, random_state=seed).split(score[:, None], y_img, groups):
+                dec_img[va] = score[va] >= sensitivity_threshold(y_img[tr], score[tr], 0.80)
+            runs.append((probs, decs, score, dec_img, np.any(np.stack(list(decs.values())), 0)))
         # aggregate over seeds: mean metrics; pooled (seed-averaged) scores for CIs
         for vt in types[region]:
             yv = idx.loc[ids, vt].astype(int).to_numpy()
             ms = [metrics(yv, r[0][vt], r[1][vt]) for r in runs]
             report["types"][f"{region}:{vt}"] = {k: round(float(np.mean([m[k] for m in ms])), 3) for k in ms[0]} | {"n_pos": int(yv.sum())}
         ms = [metrics(y_img, r[2], r[3]) for r in runs]
+        ms_any = [metrics(y_img, r[2], r[4]) for r in runs]
+        report.setdefault("regions_any_type", {})[region] = {
+            k: round(float(np.mean([m[k] for m in ms_any])), 3) for k in ms_any[0]}
         score = np.mean([r[2] for r in runs], 0); dec = np.mean([r[3] for r in runs], 0) >= 0.5
         ci = bootstrap(y_img, score, dec)
         report["regions"][region] = {k: [round(float(np.mean([m[k] for m in ms])), 3), [round(float(x), 3) for x in ci[k]]] for k in ms[0]}
@@ -168,10 +175,13 @@ def main():
     print("Per violation type (mean over 10 CV repeats):")
     for k, v in report["types"].items():
         print(f"  {k:18s} AUC {v['auc']:.3f}  F1 {v['f1']:.3f}  sens {v['sens']:.2f}  spec {v['spec']:.2f}  (positives {v['n_pos']})")
-    print("\nImage verdict (quality_class), mean over repeats [95% bootstrap CI]:")
+    print("\nImage verdict (quality_class, shipped policy 'screening'), mean over repeats [95% bootstrap CI]:")
     for r, v in report["regions"].items():
         print(f"  {r:8s} n={v['n'][0]} ({v['n'][1]} bad)  AUC {v['auc'][0]:.3f} {v['auc'][1]}  F1 {v['f1'][0]:.3f} {v['f1'][1]}  "
               f"sens {v['sens'][0]:.2f}  spec {v['spec'][0]:.2f}  bAcc {v['bacc'][0]:.3f}")
+    print("Same scores with the old rule 'any type fired':")
+    for r, v in report["regions_any_type"].items():
+        print(f"  {r:8s} F1 {v['f1']:.3f}  sens {v['sens']:.2f}  spec {v['spec']:.2f}  bAcc {v['bacc']:.3f}")
     Path("data/train/pipeline_eval.json").write_text(json.dumps(report, ensure_ascii=False, indent=1))
     pd.concat(oof_rows).to_csv("data/train/pipeline_oof.csv", index=False)
 
