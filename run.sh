@@ -3,7 +3,7 @@
 # Проверено на Linux и macOS; нужен только Docker.
 #
 #   ./run.sh build                      собрать образ
-#   ./run.sh predict <папка> [<выход>]  обработать исследования (по умолчанию выход в ./outputs)
+#   ./run.sh predict <папка|архив.zip> [<выход>]   обработать исследования (по умолчанию в ./outputs)
 #   ./run.sh serve [<порт>]             веб-интерфейс и HTTP API (по умолчанию 8000)
 #   ./run.sh test                       прогнать на тестовых файлах организаторов
 set -eu
@@ -23,15 +23,21 @@ build() {
 }
 
 predict() {
-    [ $# -ge 1 ] || die "укажите папку с исследованиями: ./run.sh predict <папка> [<папка вывода>]"
-    IN="$(cd "$1" 2>/dev/null && pwd)" || die "папка не найдена: $1"
+    [ $# -ge 1 ] || die "укажите папку или архив: ./run.sh predict <папка|архив.zip> [<папка вывода>]"
+    if [ -d "$1" ]; then
+        IN="$(cd "$1" && pwd)"; TARGET=/data
+    elif [ -f "$1" ]; then
+        IN="$(cd "$(dirname "$1")" && pwd)"; TARGET="/data/$(basename "$1")"
+    else
+        die "не найдено: $1"
+    fi
     OUT="${2:-$ROOT/outputs}"
     mkdir -p "$OUT"
     OUT="$(cd "$OUT" && pwd)"
     ensure_image
     docker run --rm --platform "$PLATFORM" \
         -v "$IN":/data:ro -v "$OUT":/out \
-        "$IMAGE" /data --out /out/results.csv --vis /out/vis
+        "$IMAGE" "$TARGET" --out /out/results.csv --vis /out/vis
     echo "Результаты: $OUT/results.csv (и .xlsx), визуализация: $OUT/results_vis.zip"
 }
 
