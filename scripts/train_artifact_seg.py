@@ -129,9 +129,14 @@ def main():
             net = train([items[i] for i in tr if items[i]["usable"]], device, args.epochs, seed=r * 10 + fold)
             o[va] = scores(net, [items[i] for i in va], device)[0]
             print(f"  repeat {r} fold {fold}: {time.time() - t0:.0f}s", flush=True)
+        pooled_oof = o if r == 0 else pooled_oof + o
         ens = (pd.Series(o).rank().to_numpy() + pd.Series(hand).rank().to_numpy()) / 2
         for k, s in (("seg", o), ("hand", hand), ("ens", ens)):
             res[k].append(roc_auc_score(y, s)); pooled[k] += s / args.repeats
+    # per-image out-of-fold scores, so the decision layer can use the net as a feature
+    Path("data/train/artifact_seg_oof.json").write_text(json.dumps(
+        {i: float(v) for i, v in zip(ids, pooled_oof / args.repeats)}, ensure_ascii=False, indent=1))
+    print("saved data/train/artifact_seg_oof.json")
     print(f"\nforeign bodies, {len(y)} spines ({y.sum()} with artifacts)")
     out = {}
     for k in res:

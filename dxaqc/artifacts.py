@@ -8,11 +8,18 @@ import cv2
 import numpy as np
 
 
+# Settings of the top-hat detector, chosen by a sweep with the choice made inside the training folds
+# (honest AUC 0.859 -> 0.876; the point estimate for this fixed setting on all data is 0.899). The
+# fraction matters most: bra wires and clasps sit in the upper third of the frame.
+KERNEL = 13
+TH_REL = 0.18
+TOP_FRACTION = 0.30
+
 OVERLAY_MIN_FRAC = 0.4      # a drawn ROI line spans most of the frame; an underwire does not
 OVERLAY_MAX_ANGLE = 4.0     # degrees from horizontal / vertical
 
 
-def overlay_mask(img, kernel=11, th_rel=0.18):
+def overlay_mask(img, kernel=KERNEL, th_rel=TH_REL):
     """Pixels of burned-in graphics: long, perfectly straight, axis-aligned bright lines.
 
     Densitometers can print their own ROI boxes and labels onto the exported image (the organisers'
@@ -44,7 +51,7 @@ def _drop_overlay(lab, k, ovl):
     return ovl[m].mean() > 0.6
 
 
-def thin_bright_components(img, kernel=11, th_rel=0.18):
+def thin_bright_components(img, kernel=KERNEL, th_rel=TH_REL):
     g = img.astype(np.float32)
     tophat = cv2.morphologyEx(g, cv2.MORPH_TOPHAT, cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (kernel, kernel)))
     mask = (tophat > th_rel * 255) & (g > np.percentile(g, 85))
@@ -71,7 +78,7 @@ def _in_column(c, points, w, column_half_width):
     return abs(c["cx"] - (x1 + (x2 - x1) * (c["cy"] - y1) / max(y2 - y1, 1))) < column_half_width
 
 
-def artifact_mask(img, points=None, column_half_width=40, kernel=11, th_rel=0.18):
+def artifact_mask(img, points=None, column_half_width=40, kernel=KERNEL, th_rel=TH_REL):
     """Pixels of the thin bright components that drive the artifact score (outside the column, top 40 %)."""
     g = img.astype(np.float32)
     tophat = cv2.morphologyEx(g, cv2.MORPH_TOPHAT, cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (kernel, kernel)))
@@ -81,7 +88,7 @@ def artifact_mask(img, points=None, column_half_width=40, kernel=11, th_rel=0.18
     out = np.zeros(img.shape, bool)
     for k in range(1, n):
         c = {"cx": cent[k, 0], "cy": cent[k, 1]}
-        if (stats[k, cv2.CC_STAT_AREA] >= 6 and c["cy"] < 0.4 * img.shape[0]
+        if (stats[k, cv2.CC_STAT_AREA] >= 6 and c["cy"] < TOP_FRACTION * img.shape[0]
                 and not _drop_overlay(lab, k, ovl)
                 and not _in_column(c, points, img.shape[1], column_half_width)):
             out |= lab == k
@@ -102,7 +109,7 @@ def artifact_features(img, points=None, column_half_width=40):
 
     out_col = [c for c in comps if not in_column(c)]
     lines = [c for c in out_col if c["elong"] > 3 and c["length"] > 15]
-    top = [c for c in out_col if c["cy"] < 0.4 * h]
+    top = [c for c in out_col if c["cy"] < TOP_FRACTION * h]
     f = {
         "n_out": len(out_col), "area_out": sum(c["area"] for c in out_col),
         "n_lines": len(lines), "len_lines": sum(c["length"] for c in lines), "max_len": max([c["length"] for c in out_col], default=0),
