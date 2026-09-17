@@ -79,9 +79,7 @@ class QCService:
         model = self.decision["spine" if region == "spine" else "hip"]
         probs, decs, score = model.predict(meas)
         quality_class, violations = model.verdict(probs, decs, score, self.policy)
-        # Flagged by the image score while no single type crossed its own threshold: the named type is
-        # then the most probable cause, and the report says so instead of pretending to be sure.
-        presumed = bool(quality_class and not any(decs.values()))
+        presumed = False
         # An image with the densitometer's own ROI boxes printed on it cannot be judged for foreign
         # bodies: the printed lines and labels are thin and bright exactly like metal. Say so instead.
         if meas.get("printed_markup") and "v_artifact" in violations:

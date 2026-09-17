@@ -12,7 +12,7 @@ import numpy as np
 import pandas as pd
 from PIL import Image
 from sklearn.ensemble import ExtraTreesClassifier
-from sklearn.metrics import f1_score, roc_auc_score
+from sklearn.metrics import average_precision_score, f1_score, roc_auc_score
 from sklearn.model_selection import StratifiedGroupKFold
 from sklearn.pipeline import make_pipeline
 from sklearn.preprocessing import StandardScaler
@@ -62,8 +62,10 @@ def cv_type(X, y, groups, make_model, seed):
 def metrics(y, score, dec):
     tp, tn = int((dec & (y == 1)).sum()), int((~dec & (y == 0)).sum())
     sens, spec = tp / max((y == 1).sum(), 1), tn / max((y == 0).sum(), 1)
-    return {"auc": roc_auc_score(y, score) if len(set(y)) > 1 else np.nan, "f1": f1_score(y, dec, zero_division=0),
-            "sens": sens, "spec": spec, "bacc": (sens + spec) / 2}
+    two = len(set(y)) > 1
+    return {"auc": roc_auc_score(y, score) if two else np.nan,
+            "pr_auc": average_precision_score(y, score) if two else np.nan,
+            "f1": f1_score(y, dec, zero_division=0), "sens": sens, "spec": spec, "bacc": (sens + spec) / 2}
 
 
 def bootstrap(y, score, dec, n=2000, seed=0):
@@ -153,12 +155,9 @@ def main():
     y_all = allrows.y.to_numpy(int)
     s_all = allrows.score.to_numpy(float)
     g_all = allrows.id.str[:3].astype(int).to_numpy()
-    dec_runs = []
-    for seed in SEEDS:
-        d = np.zeros(len(y_all), bool)
-        for tr, va in StratifiedGroupKFold(5, shuffle=True, random_state=seed).split(s_all[:, None], y_all, g_all):
-            d[va] = s_all[va] >= sensitivity_threshold(y_all[tr], s_all[tr], 0.80)
-        dec_runs.append(d)
+    # Shipped rule: the image is bad when any violation type fires (see decision.DecisionModel.verdict)
+    dec_runs = [allrows[[f"d_{vt}" for vt in TYPES["spine"] | TYPES["hip"] if f"d_{vt}" in allrows]]
+                .fillna(0).sum(axis=1).to_numpy() > 0]
     d_all = np.mean(dec_runs, 0) >= 0.5
     allrows["decision"] = d_all.astype(int)
     is_spine = allrows.id.str.endswith("spine").to_numpy()
@@ -170,16 +169,28 @@ def main():
         report["regions"][name]["n"] = [int(mask.sum()), int(y_all[mask].sum())]
     oof_rows = [allrows]
 
+    # ТЗ 8.4 asks for the sensitivity of detecting STUDIES with violations, so report that view too:
+    # a study counts as bad when any of its images does.
+    st = allrows.assign(study=allrows.id.str[:3].astype(int), dec=d_all.astype(int))
+    st = st.groupby("study").agg(y=("y", "max"), dec=("dec", "max"), score=("score", "max"))
+    ms = metrics(st.y.to_numpy(int), st.score.to_numpy(float), st.dec.to_numpy(bool))
+    ci = bootstrap(st.y.to_numpy(int), st.score.to_numpy(float), st.dec.to_numpy(bool))
+    report["studies"] = {k: [round(float(v), 3), [round(float(x), 3) for x in ci[k]]] for k, v in ms.items()}
+    report["studies"]["n"] = [len(st), int(st.y.sum())]
+    macro = float(np.mean([report["types"][k]["f1"] for k in report["types"]]))
+    report["macro_f1_types"] = round(macro, 3)
+
     print("Per violation type (mean over 10 CV repeats):")
     for k, v in report["types"].items():
         print(f"  {k:18s} AUC {v['auc']:.3f}  F1 {v['f1']:.3f}  sens {v['sens']:.2f}  spec {v['spec']:.2f}  (positives {v['n_pos']})")
     print("\nImage verdict (quality_class, shipped policy 'screening'), mean over repeats [95% bootstrap CI]:")
     for r, v in report["regions"].items():
         print(f"  {r:8s} n={v['n'][0]} ({v['n'][1]} bad)  AUC {v['auc'][0]:.3f} {v['auc'][1]}  F1 {v['f1'][0]:.3f} {v['f1'][1]}  "
-              f"sens {v['sens'][0]:.2f}  spec {v['spec'][0]:.2f}  bAcc {v['bacc'][0]:.3f}")
-    print("Same scores with the old rule 'any type fired':")
-    for r, v in report["regions_any_type"].items():
-        print(f"  {r:8s} F1 {v['f1']:.3f}  sens {v['sens']:.2f}  spec {v['spec']:.2f}  bAcc {v['bacc']:.3f}")
+              f"PR-AUC {v['pr_auc'][0]:.3f}  sens {v['sens'][0]:.2f}  spec {v['spec'][0]:.2f}  bAcc {v['bacc'][0]:.3f}")
+    v = report["studies"]
+    print(f"\nStudy verdict (ТЗ 8.4: «чувствительность выявления исследований»): n={v['n'][0]} ({v['n'][1]} bad)  "
+          f"AUC {v['auc'][0]:.3f} {v['auc'][1]}  F1 {v['f1'][0]:.3f} {v['f1'][1]}  sens {v['sens'][0]:.2f}  spec {v['spec'][0]:.2f}")
+    print(f"macro-F1 over violation types: {report['macro_f1_types']:.3f}")
     Path("data/train/pipeline_eval.json").write_text(json.dumps(report, ensure_ascii=False, indent=1))
     pd.concat(oof_rows).to_csv("data/train/pipeline_oof.csv", index=False)
 
