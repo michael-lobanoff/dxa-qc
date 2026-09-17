@@ -36,6 +36,7 @@ def main():
     idx = idx.set_index("id")
     kp = json.loads(Path("data/train/keypoints.json").read_text())
     oof = {**json.loads(Path("data/train/kp_oof_spine.json").read_text()), **json.loads(Path("data/train/kp_oof_hip.json").read_text())}
+    seg_oof = json.loads(Path("data/train/artifact_seg_oof.json").read_text())
     img = {i: np.asarray(Image.open(f"data/annotation/images/{i}.png")) for i in oof}
 
     # rotation: out-of-fold scores (averaged over 5 CV repeats) for calibration, final forest on everything
@@ -73,7 +74,7 @@ def main():
         for i in ids:
             p, c = oof[i]["points"], oof[i]["conf"]
             if region == "spine":
-                meas[i] = spine_measurements(img[i], p, c, spacing(idx, i))
+                meas[i] = spine_measurements(img[i], p, c, spacing(idx, i), seg_oof.get(i, 0.0))
             else:
                 meas[i] = hip_measurements(img[i], p, c, i[4:], spacing(idx, i))
                 meas[i]["rotation"] = rot_of[i]

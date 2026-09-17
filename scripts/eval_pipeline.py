@@ -85,13 +85,14 @@ def main():
     idx = idx.set_index("id")
     kp = json.loads(Path("data/train/keypoints.json").read_text())
     oof = {**json.loads(Path("data/train/kp_oof_spine.json").read_text()), **json.loads(Path("data/train/kp_oof_hip.json").read_text())}
+    seg_oof = json.loads(Path("data/train/artifact_seg_oof.json").read_text())
     img = lambda i: np.asarray(Image.open(f"data/annotation/images/{i}.png"))
 
     # ---------------- spine features
     sp = [i for i in sorted(oof) if i.endswith("spine") and not pd.isna(idx.loc[i, "y"])]
     S = []
     for i in sp:
-        S.append(spine_measurements(img(i), oof[i]["points"], oof[i]["conf"], spacing(idx, i)))
+        S.append(spine_measurements(img(i), oof[i]["points"], oof[i]["conf"], spacing(idx, i), seg_oof.get(i, 0.0)))
     S = pd.DataFrame(S, index=sp)
     # ---------------- hip features (rotation score: HOG + RF, trained on manual-keypoint crops, applied to detector crops)
     hp = [i for i in sorted(oof) if "hip" in i and not kp[i]["flags"].get("skip") and not pd.isna(idx.loc[i, "y"])]

@@ -9,6 +9,7 @@ import numpy as np
 import pydicom
 
 from .decision import NAMES_RU, hip_measurements, spine_measurements
+from .artifactnet import ArtifactSegmenter
 from .detector import KeypointDetector
 from .hipcrop import hip_crop, rotation_features
 from .pixels import DXA_MIN_MM_PER_PX, pixel_spacing_mm
@@ -46,6 +47,7 @@ class QCService:
         model_dir = Path(model_dir)
         self.region = RegionClassifier.load(model_dir / "region.pkl")
         self.detector = KeypointDetector(model_dir, device)
+        self.segmenter = ArtifactSegmenter(model_dir, self.detector.device)
         with open(model_dir / "decision.pkl", "rb") as f:
             d = pickle.load(f)
         self.decision = {"spine": d["spine"], "hip": d["hip"]}
@@ -67,7 +69,7 @@ class QCService:
         out = {"region": region, "region_conf": region_conf, "points": points, "point_conf": conf,
                "mm_per_px": mm_per_px, "unsupported": False, "checks": stats}
         if region == "spine":
-            meas = spine_measurements(img, points, conf, mm_per_px)
+            meas = spine_measurements(img, points, conf, mm_per_px, self.segmenter.area(img))
         else:
             if float((img >= img.max() - 2).mean()) > IMPLANT_METAL_FRACTION:
                 out.update(implant=True, measurements={}, probs={}, violations=[], score=None, quality_class=0)

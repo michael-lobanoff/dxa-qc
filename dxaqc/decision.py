@@ -22,9 +22,10 @@ FUSION = {"spine": "percentile", "hip": "probability"}
 
 TYPES = {
     "spine": {"v_axis": (["abs_tilt", "curvature"], [1, -1]), "v_pos": (["crest_conf"], [-1]),
-              # artifacts: one measurement beats three — the extra two are weaker (0.84, 0.80 against
-              # 0.90) and with 17 positives they cost more than they add (per-fold AUC 0.869 -> 0.893)
-              "v_artifact": (["area_top"], [1])},
+              # artifacts: the hand-crafted top-hat area plus the segmentation net. Two weaker
+              # hand features (n_out, max_len) were dropped — they cost more than they added; the net
+              # is a genuinely different opinion and does add (0.898 -> 0.911 on matched folds).
+              "v_artifact": (["area_top", "seg_area"], [1, 1])},
     "hip": {"v_roi": (["margin_bottom", "margin_top"], [-1, -1]), "v_posrot": (["rotation"], [1])},
 }
 # Wording fixed by the organisers (разъяснения V2, вопрос 6): exactly these strings, several joined
@@ -34,7 +35,8 @@ NAMES_RU = {"v_axis": "Не выравнена ось позвоночника",
             "v_posrot": "Некорректная укладка"}
 
 
-def spine_measurements(img, points, conf, mm_per_px=None):
+def spine_measurements(img, points, conf, mm_per_px=None, seg_area=0.0):
+    """seg_area: pixels the segmentation net calls metal (artifactnet.ArtifactSegmenter)."""
     mm_per_px = MM_PER_PX if mm_per_px is None else mm_per_px
     vert = find_vertebrae(img, points, mm_per_px)
     if vert is not None:
@@ -50,7 +52,7 @@ def spine_measurements(img, points, conf, mm_per_px=None):
             "vert_n": None if vert is None else vert["n"], "vert_points": None if vert is None else vert["points"],
             "rois": spine_rois(img, points, vert),
             "crest_conf": min(conf.get("crest_a", 0.0), conf.get("crest_b", 0.0)),
-            "area_top": a["area_top"], "n_out": a["n_out"], "max_len": a["max_len"],
+            "area_top": a["area_top"], "n_out": a["n_out"], "max_len": a["max_len"], "seg_area": float(seg_area),
             "printed_markup": a["n_overlay_lines"] >= 3}
 
 
