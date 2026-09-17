@@ -13,11 +13,12 @@ import pandas as pd
 from PIL import Image
 from sklearn.ensemble import ExtraTreesClassifier
 from sklearn.metrics import average_precision_score, f1_score, roc_auc_score
+from sklearn.linear_model import LogisticRegression
 from sklearn.model_selection import StratifiedGroupKFold
 from sklearn.pipeline import make_pipeline
 from sklearn.preprocessing import StandardScaler
 
-from dxaqc.decision import TYPES, Monotone, sensitivity_threshold, spine_measurements
+from dxaqc.decision import FUSION, TYPES, Monotone, sensitivity_threshold, spine_measurements
 from dxaqc.features import hip_features
 from dxaqc.hipcrop import hip_crop, rotation_features
 
@@ -50,13 +51,14 @@ def blend_with_other_hip(prob, ids, alpha):
 
 
 def cv_type(X, y, groups, make_model, seed):
-    """Out-of-fold probability and binary decision (threshold tuned on the training folds)."""
-    prob, dec = np.zeros(len(y)), np.zeros(len(y), bool)
+    """Out-of-fold probability, decision (threshold from the training folds) and fusion score."""
+    prob, dec, rank = np.zeros(len(y)), np.zeros(len(y), bool), np.zeros(len(y))
     for tr, va in StratifiedGroupKFold(5, shuffle=True, random_state=seed).split(X, y, groups):
         m = make_model(); m.fit(X[tr], y[tr])
         t = best_threshold(y[tr], m.predict_proba(X[tr])[:, 1])
         prob[va] = m.predict_proba(X[va])[:, 1]; dec[va] = prob[va] >= t
-    return prob, dec
+        rank[va] = m.rank_score(X[va])
+    return prob, dec, rank
 
 
 def metrics(y, score, dec):
@@ -111,7 +113,7 @@ def main():
         y_img = idx.loc[ids, "y"].astype(int).to_numpy()
         runs = []
         for seed in SEEDS:
-            probs, decs = {}, {}
+            probs, decs, fuse = {}, {}, {}
             for vt, cols in types[region].items():
                 yv = idx.loc[ids, vt].astype(int).to_numpy()
                 if cols == "rotation":
@@ -124,14 +126,25 @@ def main():
                         t = best_threshold(yv[tr], rf.predict_proba(hog_det[tr])[:, 1])
                         prob[va] = rf.predict_proba(hog_det[va])[:, 1]; dec[va] = prob[va] >= t
                     prob = blend_with_other_hip(prob, ids, alpha=0.2)
+                    fuse[vt] = prob
                     for tr, va in StratifiedGroupKFold(5, shuffle=True, random_state=seed).split(hog_man, yv, groups):
                         dec[va] = prob[va] >= best_threshold(yv[tr], prob[tr])
                 else:
                     feats, signs = cols
-                    prob, dec = cv_type(F[feats].to_numpy(float), yv, groups, lambda: Monotone(signs, lr_weights=True), seed)
+                    prob, dec, rank = cv_type(F[feats].to_numpy(float), yv, groups, lambda: Monotone(signs, lr_weights=True), seed)
                 probs[vt], decs[vt] = prob, dec
-            score = 1 - np.prod(1 - np.stack(list(probs.values())), 0)   # noisy-OR: "any violation"
-            runs.append((probs, decs, score, None, np.any(np.stack(list(decs.values())), 0)))
+                fuse[vt] = rank if FUSION[region] == "percentile" else prob
+            # combined score for quality_prob: percentiles for the spine types, probabilities for hips,
+            # then ONE calibration per region (fitted on the training folds) so that the two regions end
+            # up on the same probability scale and can be pooled — without it the overall AUC collapses.
+            raw = 1 - np.prod(1 - np.stack([fuse.get(vt, probs[vt]) for vt in probs]), 0)
+            score = np.zeros(len(raw))
+            for tr, va in StratifiedGroupKFold(5, shuffle=True, random_state=seed).split(raw[:, None], y_img, groups):
+                cal = LogisticRegression(C=10.0, max_iter=2000).fit(raw[tr, None], y_img[tr])
+                if cal.coef_[0, 0] <= 0:
+                    cal.coef_[0, 0] = 1e-3
+                score[va] = cal.predict_proba(raw[va, None])[:, 1]
+            runs.append((probs, decs, score, raw, np.any(np.stack(list(decs.values())), 0)))
         # aggregate over seeds: mean metrics; pooled (seed-averaged) scores for CIs
         for vt in types[region]:
             yv = idx.loc[ids, vt].astype(int).to_numpy()
@@ -140,8 +153,9 @@ def main():
         ms_any = [metrics(y_img, r[2], r[4]) for r in runs]
         report.setdefault("regions_any_type", {})[region] = {
             k: round(float(np.mean([m[k] for m in ms_any])), 3) for k in ms_any[0]}
-        score = np.mean([r[2] for r in runs], 0)
-        per_image = pd.DataFrame({"id": ids, "y": y_img, "score": score})
+        score = np.mean([r[2] for r in runs], 0)          # calibrated: comparable between regions
+        raw_mean = np.mean([r[3] for r in runs], 0)         # uncalibrated: the ranking inside a region
+        per_image = pd.DataFrame({"id": ids, "y": y_img, "score": score, "score_raw": raw_mean})
         for vt in types[region]:
             per_image[vt] = idx.loc[ids, vt].astype(int).to_numpy()
             per_image[f"p_{vt}"] = np.mean([r[0][vt] for r in runs], 0)
@@ -161,9 +175,13 @@ def main():
     d_all = np.mean(dec_runs, 0) >= 0.5
     allrows["decision"] = d_all.astype(int)
     is_spine = allrows.id.str.endswith("spine").to_numpy()
+    raw_all = allrows.score_raw.to_numpy(float)
     for name, mask in (("spine", is_spine), ("hip", ~is_spine), ("overall", np.ones(len(y_all), bool))):
-        ms = [metrics(y_all[mask], s_all[mask], d[mask]) for d in dec_runs]
-        ci = bootstrap(y_all[mask], s_all[mask], d_all[mask])
+        # inside one region the shipped calibration is a single monotone map, so the ranking there is
+        # the uncalibrated one; across regions only the calibrated score is comparable.
+        rank = raw_all if name != "overall" else s_all
+        ms = [metrics(y_all[mask], rank[mask], d[mask]) for d in dec_runs]
+        ci = bootstrap(y_all[mask], rank[mask], d_all[mask])
         report["regions"][name] = {k: [round(float(np.mean([m[k] for m in ms])), 3),
                                        [round(float(x), 3) for x in ci[k]]] for k in ms[0]}
         report["regions"][name]["n"] = [int(mask.sum()), int(y_all[mask].sum())]

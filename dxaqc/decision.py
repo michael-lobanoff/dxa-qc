@@ -14,6 +14,12 @@ from .geometry import MM_PER_PX, axes_mm, spine_rules
 from .roi import hip_roi, spine_rois
 from .vertebrae import find as find_vertebrae
 
+# How the per-type scores are combined into the image score (quality_prob, the column ROC-AUC is
+# computed from). Spine has three types with 6-17 positives each, where the probability scale is
+# unstable, and percentiles rank better (AUC 0.859 against 0.845). Hip is dominated by rotation with
+# 36 positives, where the probability itself carries information and percentiles destroy it (0.62).
+FUSION = {"spine": "percentile", "hip": "probability"}
+
 TYPES = {
     "spine": {"v_axis": (["abs_tilt", "curvature"], [1, -1]), "v_pos": (["crest_conf"], [-1]),
               # artifacts: one measurement beats three — the extra two are weaker (0.84, 0.80 against
@@ -101,6 +107,11 @@ class Monotone:
         p = self.cal.predict_proba(self._scale(s)[:, None])[:, 1]
         return np.stack([1 - p, p], 1)
 
+    def rank_score(self, X):
+        """Where this image falls in the training distribution of the score, in [0, 1]."""
+        s = ((X * self.signs - self.mu) / self.sd) @ self.w
+        return np.searchsorted(self.ref, s) / max(len(self.ref), 1)
+
 
 def blend_rotation(own, other, alpha):
     """Rotation probability of a hip, mixed with the other hip of the same study.
@@ -143,7 +154,14 @@ class DecisionModel:
             self.models[vt] = m
             probs[vt] = m.predict_proba(feats[vt])[:, 1]
             self.thresholds[vt] = float(best_threshold(labels[vt], probs[vt]))
-        self.scores_ = 1 - np.prod([1 - probs[vt] for vt in probs], axis=0)
+        fuse = {vt: (self.models[vt].rank_score(feats[vt]) if FUSION[region] == "percentile" else probs[vt])
+                for vt in probs}
+        raw = 1 - np.prod([1 - fuse[vt] for vt in fuse], axis=0)
+        y_for_cal = np.max([labels[vt] for vt in labels], axis=0) if y_img is None else np.asarray(y_img)
+        self.image_cal = LogisticRegression(C=10.0, max_iter=2000).fit(raw[:, None], y_for_cal)
+        if self.image_cal.coef_[0, 0] <= 0:
+            self.image_cal.coef_[0, 0] = 1e-3
+        self.scores_ = self.image_cal.predict_proba(raw[:, None])[:, 1]
         self.y_img_ = np.max([labels[vt] for vt in labels], axis=0) if y_img is None else np.asarray(y_img)
         self.set_image_thresholds(self.y_img_, self.scores_)
         return self
@@ -158,13 +176,22 @@ class DecisionModel:
 
     def predict(self, meas):
         """meas: dict of measurements for one image -> (probabilities, decisions, image score)."""
-        probs, decs = {}, {}
+        probs, decs, fuse = {}, {}, {}
         for vt, (cols, _) in TYPES[self.region].items():
             x = np.array([[np.nan_to_num(float(meas.get(c) if meas.get(c) is not None else np.nan), nan=0.0) for c in cols]])
             probs[vt] = float(self.models[vt].predict_proba(x)[0, 1])
             decs[vt] = probs[vt] >= self.thresholds[vt]
-        score = 1 - float(np.prod([1 - p for p in probs.values()]))
-        return probs, decs, score
+            fuse[vt] = (float(self.models[vt].rank_score(x)[0])
+                        if FUSION[self.region] == "percentile" and hasattr(self.models[vt], "rank_score")
+                        else probs[vt])
+        raw = 1 - float(np.prod([1 - p for p in fuse.values()]))
+        return probs, decs, self.calibrate(raw)
+
+    def calibrate(self, raw):
+        """Map the combined score to a probability. One calibration per region, fitted on every
+        labelled image, so quality_prob still reads as a probability after percentile fusion."""
+        cal = getattr(self, "image_cal", None)
+        return float(cal.predict_proba([[raw]])[0, 1]) if cal is not None else float(raw)
 
     def verdict(self, probs, decs, score, policy="screening"):
         """(quality_class, violation types) for one image: bad when any violation type fires.
