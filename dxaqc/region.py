@@ -30,6 +30,11 @@ NEIGHBOURS = 5
 # organisers' scans 0.95-0.97, public DXA scans from another centre 0.74-0.93, white noise 0.00-0.44.
 # Raw neighbouring-pixel correlation was tried first and rejected: it refused every image of the
 # external DXA set (0.91 against our 0.997) purely because their export carries finer pixel noise.
+# A DXA export is a small image: the detector sweeps at ~0.6 mm per pixel over 20-30 cm, so the long
+# side is a few hundred pixels (ours 280-405, a public set from another centre 224-401). A plain
+# radiograph of the same anatomy is 2300-3300 px — and the service happily judged 62 of 66 real lumbar
+# radiographs as densitometry until this check was added.
+MAX_SIDE_PX = 1200
 MIN_STD = 1.0             # a blank frame carries no anatomy
 AUTOCORR_LAG = 4
 AUTOCORR_BLUR = 1.0
@@ -80,7 +85,9 @@ class RegionClassifier:
         """
         a = np.asarray(img, dtype=np.float32)
         std = float(a.std())
-        stats = {"std": std, "autocorr": 0.0, "novelty": 0.0}
+        stats = {"std": std, "autocorr": 0.0, "novelty": 0.0, "side": float(max(a.shape[:2]))}
+        if max(a.shape[:2]) > MAX_SIDE_PX:
+            return False, "снимок слишком крупный для денситометрии (похоже на обычный рентген)", stats
         if std < MIN_STD:
             return False, "пустое изображение", stats
         b = cv2.GaussianBlur(a, (0, 0), AUTOCORR_BLUR)

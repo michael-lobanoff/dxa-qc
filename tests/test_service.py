@@ -150,3 +150,26 @@ def test_real_scans_are_not_refused(service):
     """The guard must not reject the organisers' own samples."""
     for path in SAMPLES:
         assert service.process_file(path)["violation_codes"] != "unsupported", path.name
+
+
+def test_refuses_plain_radiographs(service, tmp_path):
+    """A plain lumbar radiograph is not densitometry: refuse by pixel size and by image size.
+
+    Real files (Philips CR, 0.14 mm pixels, ~2900 px) were accepted as DXA before these checks —
+    62 of 66 got a full quality verdict. See docs/night_report.md.
+    """
+    import numpy as np
+
+    from dxaqc.region import MAX_SIDE_PX, RegionClassifier
+
+    big = np.zeros((1600, 1200), np.uint8)
+    big[::7] = 200                                    # structure, so it is not refused as noise
+    assert max(big.shape) > MAX_SIDE_PX
+    ok, why, _ = RegionClassifier.load(ROOT / "models/region.pkl").check(big)
+    assert not ok and "рентген" in why
+
+    path = _variant(SAMPLES[0], tmp_path, "radiograph.dcm",
+                    lambda ds: setattr(ds, "PixelSpacing", [0.143, 0.143]))
+    row = service.process_file(path)
+    assert row["violation_codes"] == "unsupported" and row["processing_status"] == "Success"
+    assert "не денситометрия" in row["violation_type"]

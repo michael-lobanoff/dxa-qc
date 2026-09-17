@@ -11,7 +11,7 @@ import pydicom
 from .decision import NAMES_RU, hip_measurements, spine_measurements
 from .detector import KeypointDetector
 from .hipcrop import hip_crop, rotation_features
-from .pixels import pixel_spacing_mm
+from .pixels import DXA_MIN_MM_PER_PX, pixel_spacing_mm
 from .region import RegionClassifier
 
 # разъяснения V2, вопрос 15: only these two values, the side is not reported (it is still detected
@@ -110,6 +110,13 @@ class QCService:
             row["study_uid"] = str(getattr(ds, "StudyInstanceUID", ""))
             row["image_uid"] = str(getattr(ds, "SOPInstanceUID", ""))
             mm, mm_src = pixel_spacing_mm(ds, img.shape)
+            if mm_src in ("PixelSpacing", "ImagerPixelSpacing") and min(mm) < DXA_MIN_MM_PER_PX:
+                # a real spacing tag this fine means a radiograph (0.12-0.14 mm), not DXA (0.6 mm)
+                row.update(anatomical_region="не определена", quality_class=0, processing_status="Success",
+                           violation_type=f"оценка не проводится: размер пикселя {min(mm):.2f} мм — это не денситометрия",
+                           violation_codes="unsupported", details=f"{mm[0]:.3f}x{mm[1]:.3f} мм из тега {mm_src}")
+                row["time_of_processing"] = round(time.time() - t0, 3)
+                return row
             r = self.analyse(img, mm, rotation_override)
             row["mm_per_px"] = f"{mm[0]:.3f}x{mm[1]:.3f}" if mm[0] != mm[1] else round(mm[0], 4)
             row["mm_per_px_source"] = mm_src

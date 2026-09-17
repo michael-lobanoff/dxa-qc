@@ -24,6 +24,7 @@ angles (spine tilt) are measured on the displayed image, where the ≤5° criter
 """
 import os
 
+DXA_MIN_MM_PER_PX = 0.30   # below this the image is a plain radiograph, not densitometry
 MIN_MM_PER_PX = 0.55
 MAX_MM_PER_PX = 0.70
 DEFAULT_MM_PER_PX = 0.607   # median over the images whose tag passes the check
