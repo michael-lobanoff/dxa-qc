@@ -52,6 +52,7 @@ class QCService:
             d = pickle.load(f)
         self.decision = {"spine": d["spine"], "hip": d["hip"]}
         self.rotation, self.hog_cell = d["rotation_rf"], d["hog_cell"]
+        self.rotation.n_jobs = 1   # at most three crops per call: worker threads cost more than they save
         self.rotation_blend = float(d.get("rotation_blend", 0.0))   # weight of the other hip
         self.rotation_members = bool(d.get("rotation_members", False))   # average over the ensemble's crops
         self.image_axis = bool(d.get("image_axis", False))   # crop alignment the rotation model was trained on
