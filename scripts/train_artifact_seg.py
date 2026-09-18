@@ -103,6 +103,7 @@ def main():
     ap.add_argument("--epochs", type=int, default=80)
     ap.add_argument("--repeats", type=int, default=1)
     ap.add_argument("--save-final", action="store_true")
+    ap.add_argument("--finals", type=int, default=1, help="with --save-final: this many nets (seeds 42, 43, ...)")
     ap.add_argument("--tag", default="", help="suffix of the output files, to compare variants without overwriting")
     args = ap.parse_args()
     sfx = f"_{args.tag}" if args.tag else ""
@@ -147,9 +148,11 @@ def main():
         print(f"  {k:4s} AUC {np.mean(res[k]):.3f}  (95% CI {lo:.2f}–{hi:.2f})")
     Path(f"data/train/artifact_seg_eval{sfx}.json").write_text(json.dumps(out, indent=1))
     if args.save_final:
-        net = train([it for it in items if it["usable"]], device, args.epochs, seed=42)
-        torch.save({"state_dict": net.state_dict(), "size": K.SIZE, "margin": K.MARGIN}, "models/artifact_seg.pt")
-        print("saved models/artifact_seg.pt")
+        for k in range(args.finals):
+            net = train([it for it in items if it["usable"]], device, args.epochs, seed=42 + k)
+            dest = "models/artifact_seg.pt" if k == 0 else f"models/artifact_seg_{k + 1}.pt"
+            torch.save({"state_dict": net.state_dict(), "size": K.SIZE, "margin": K.MARGIN}, dest)
+            print("saved", dest)
 
 
 if __name__ == "__main__":

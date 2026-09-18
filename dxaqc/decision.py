@@ -152,6 +152,9 @@ class Monotone:
         return self._pct(s)
 
 
+ROTATION_BLEND = 0.2   # weight of the other hip in blend_rotation (fixed, not tuned on the data)
+
+
 def blend_rotation(own, other, alpha):
     """Rotation probability of a hip, mixed with the other hip of the same study.
 

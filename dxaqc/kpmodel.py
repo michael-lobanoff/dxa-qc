@@ -262,12 +262,13 @@ def decode(hm: torch.Tensor):
 
 
 @torch.no_grad()
-def predict(model, images, region, device, flips=None, vis_threshold=0.5):
+def predict(model, images, region, device, flips=None, vis_threshold=0.5, members=False):
     """Keypoints in original pixel coordinates for a list of uint8 images (already in normalised orientation
     unless flips[i] is True, in which case the image is a left hip that gets mirrored here and un-mirrored after).
 
     model may be a list: an ensemble of models trained with different seeds, whose heatmaps and in-frame
-    logits are averaged before decoding."""
+    logits are averaged before decoding. With members=True, also returns every model's own prediction:
+    [(points, conf) per image] for the ensemble, then one such list per model."""
     models = list(model) if isinstance(model, (list, tuple)) else [model]
     flips = flips or [False] * len(images)
     batch, mats, shapes = [], [], []
@@ -276,7 +277,7 @@ def predict(model, images, region, device, flips=None, vis_threshold=0.5):
         x, m = prepare(im)
         batch.append(x); mats.append(m); shapes.append(im.shape)
     x = torch.from_numpy(np.stack(batch))[:, None].to(device)
-    hm = vis = 0
+    each = []
     for net in models:
         net.eval()
         h_, v_ = net(x)
@@ -284,14 +285,22 @@ def predict(model, images, region, device, flips=None, vis_threshold=0.5):
             hm_f, vis_f = net(torch.flip(x, dims=[3]))
             h_ = (h_ + torch.flip(hm_f, dims=[3])[:, [0, 1, 3, 2]]) / 2
             v_ = (v_ + vis_f[:, [0, 1, 3, 2]]) / 2
-        hm, vis = hm + h_ / len(models), vis + v_ / len(models)
-    pts = decode(hm).cpu().numpy()
-    conf = torch.sigmoid(vis).cpu().numpy()
-    out = []
-    for i, (m, (h, w), fl) in enumerate(zip(mats, shapes, flips)):
-        p = apply(invert(m), pts[i])
-        if fl:
-            p[:, 0] = w - 1 - p[:, 0]
-        p[conf[i] < vis_threshold] = np.nan
-        out.append((p, conf[i]))
-    return out
+        each.append((h_, v_))
+    hm = sum(h for h, _ in each) / len(each)
+    vis = sum(v for _, v in each) / len(each)
+
+    def points(hm, vis):
+        pts = decode(hm).cpu().numpy()
+        conf = torch.sigmoid(vis).cpu().numpy()
+        out = []
+        for i, (m, (h, w), fl) in enumerate(zip(mats, shapes, flips)):
+            p = apply(invert(m), pts[i])
+            if fl:
+                p[:, 0] = w - 1 - p[:, 0]
+            p[conf[i] < vis_threshold] = np.nan
+            out.append((p, conf[i]))
+        return out
+
+    if not members:
+        return points(hm, vis)
+    return points(hm, vis), [points(h, v) for h, v in each]

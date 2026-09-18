@@ -39,14 +39,22 @@ class KeypointDetector:
                 raise FileNotFoundError(f"no landmark model kp_{region}*.pt in {model_dir}")
             self.models[region] = nets
 
-    def __call__(self, img: np.ndarray, region: str, vis_threshold=0.5):
+    def __call__(self, img: np.ndarray, region: str, vis_threshold=0.5, members=False):
         """img: uint8 array as stored in the DICOM; region: 'spine' | 'hip_left' | 'hip_right'.
 
-        Returns {name: [x, y] or None} in original pixels and {name: in-frame confidence}.
+        Returns {name: [x, y] or None} in original pixels and {name: in-frame confidence}; with
+        members=True also a list with the same pair for every model of the ensemble.
         """
         kind = "spine" if region == "spine" else "hip"
-        (p, conf), = K.predict(self.models[kind], [img], kind, self.device, flips=[region == "hip_left"],
-                               vis_threshold=vis_threshold)
         names = K.POINTS[kind]
-        points = {k: (None if np.isnan(q).any() else [float(q[0]), float(q[1])]) for k, q in zip(names, p)}
-        return points, {k: float(c) for k, c in zip(names, conf)}
+
+        def as_dict(p, conf):
+            return ({k: (None if np.isnan(q).any() else [float(q[0]), float(q[1])]) for k, q in zip(names, p)},
+                    {k: float(c) for k, c in zip(names, conf)})
+
+        res = K.predict(self.models[kind], [img], kind, self.device, flips=[region == "hip_left"],
+                        vis_threshold=vis_threshold, members=members)
+        if not members:
+            return as_dict(*res[0])
+        ens, each = res
+        return (*as_dict(*ens[0]), [as_dict(*m[0]) for m in each])

@@ -67,14 +67,14 @@ def measure(img, pts_conf, region, side, mm):
     return hip_measurements(img, points, conf, side, mm)
 
 
-def generate(tags, per_kind, seed=0):
+def generate(tags, per_kind, seed=0, regions=("spine", "hip")):
     idx = pd.read_csv("data/train/image_index.csv")
     idx["id"] = idx.n.map("{:03d}".format) + "_" + idx.region
     idx = idx.set_index("id")
     kp = json.loads(Path("data/train/keypoints.json").read_text())
     rng = np.random.default_rng(seed)
     rows = []
-    for region in ("spine", "hip"):
+    for region in regions:
         models = fold_models(tags, region)
         for i, net in sorted(models.items()):
             img = np.asarray(Image.open(f"data/annotation/images/{i}.png"))
@@ -179,16 +179,22 @@ def main():
     ap.add_argument("--name", default=None, help="name of the (ensemble) detector: kp_oof_<region>_<name>.json; "
                                                  "default: the single tag")
     ap.add_argument("--per-kind", type=int, default=2)
+    ap.add_argument("--regions", nargs="+", default=["spine", "hip"],
+                    help="generate only these; the file gets the region suffix and is merged by hand")
+    ap.add_argument("--no-eval", action="store_true")
     args = ap.parse_args()
     torch.set_num_threads(2)
     name = args.name or "_".join(args.tags)
-    path = Path(f"data/train/synth_meas_{name}.csv")
+    part = "" if len(args.regions) == 2 else "_" + args.regions[0]
+    path = Path(f"data/train/synth_meas_{name}{part}.csv")
     if path.exists():
         syn = pd.read_csv(path)
     else:
-        syn = generate(args.tags, args.per_kind)
+        syn = generate(args.tags, args.per_kind, regions=args.regions)
         syn.to_csv(path, index=False)
     print(syn.groupby(["kind", "label"]).size().to_string())
+    if args.no_eval or part:
+        return
     report = evaluate(name, syn, weights=[0.0, 0.05, 0.1, 0.2])
     Path(f"data/train/synth_eval_{name}.json").write_text(json.dumps(report, indent=1, ensure_ascii=False))
 

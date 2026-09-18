@@ -14,11 +14,18 @@ from . import kpmodel as K
 
 
 class ArtifactSegmenter:
+    """artifact_seg.pt, plus artifact_seg_<n>.pt when present: nets trained with different seeds, whose
+    probability maps are averaged."""
+
     def __init__(self, model_dir="models", device="cpu"):
-        ckpt = torch.load(Path(model_dir) / "artifact_seg.pt", map_location="cpu", weights_only=False)
-        net = K.KPNet(1)
-        net.load_state_dict(ckpt["state_dict"])
-        self.net = net.to(device).eval()
+        self.nets = []
+        for f in sorted(Path(model_dir).glob("artifact_seg*.pt")):
+            ckpt = torch.load(f, map_location="cpu", weights_only=False)
+            net = K.KPNet(1)
+            net.load_state_dict(ckpt["state_dict"])
+            self.nets.append(net.to(device).eval())
+        if not self.nets:
+            raise FileNotFoundError(f"no artifact_seg*.pt in {model_dir}")
         self.device = device
 
     @torch.no_grad()
@@ -30,5 +37,5 @@ class ArtifactSegmenter:
         x = cv2.warpAffine(np.ascontiguousarray(img).astype(np.float32), m, (K.SIZE, K.SIZE),
                            flags=cv2.INTER_LINEAR) / 255.0
         t = torch.from_numpy(x.astype(np.float32))[None, None].to(self.device)
-        p = torch.sigmoid(self.net(t)[0])[0, 0].cpu().numpy()
+        p = torch.stack([torch.sigmoid(net(t)[0])[0, 0] for net in self.nets]).mean(0).cpu().numpy()
         return float((p > 0.5).sum())

@@ -18,7 +18,7 @@ from sklearn.model_selection import StratifiedGroupKFold
 from sklearn.pipeline import make_pipeline
 from sklearn.preprocessing import StandardScaler
 
-from dxaqc.decision import FUSION, SYNTH_TYPES, SYNTH_WEIGHT, TYPES, Monotone, sensitivity_threshold, spine_measurements
+from dxaqc.decision import FUSION, ROTATION_BLEND, SYNTH_TYPES, SYNTH_WEIGHT, TYPES, Monotone, sensitivity_threshold, spine_measurements
 from dxaqc.features import hip_features
 from dxaqc.hipcrop import hip_crop, rotation_features
 
@@ -28,6 +28,9 @@ def spacing(idx, i):
     return float(idx.loc[i, "mm_per_px"]), float(idx.loc[i, "mm_per_px_y"])
 
 SEEDS = range(300, 310)
+_rb = __import__("os").environ.get("DXAQC_ROT_BLEND", "")
+ROT_BLEND = None if _rb == "nested" else (float(_rb) if _rb else ROTATION_BLEND)   # weight of the other hip; "nested" = chosen inside each fold
+BLEND_GRID = np.arange(0, 0.55, 0.05)
 
 
 def lr():
@@ -89,7 +92,10 @@ def main():
     import argparse
     ap = argparse.ArgumentParser()
     ap.add_argument("--tag", default="", help="detector variant: reads kp_oof_<region>_<tag>.json, writes pipeline_eval_<tag>.json")
+    ap.add_argument("--seg", default="", help="metal segmentation variant: data/train/artifact_seg_oof_<seg>.json")
     ap.add_argument("--synth", default=None, help="synthetic scans for the rare types: data/train/synth_meas_<synth>.csv")
+    ap.add_argument("--members", nargs="*", default=[],
+                    help="detector runs of the ensemble: rotation trains on all their crops and averages over them")
     ap.add_argument("--out", default=None, help="suffix of the output files (default: the tag)")
     args = ap.parse_args()
     sfx = f"_{args.tag}" if args.tag else ""
@@ -100,7 +106,7 @@ def main():
     kp = json.loads(Path("data/train/keypoints.json").read_text())
     oof = {**json.loads(Path(f"data/train/kp_oof_spine{sfx}.json").read_text()),
            **json.loads(Path(f"data/train/kp_oof_hip{sfx}.json").read_text())}
-    seg_oof = json.loads(Path("data/train/artifact_seg_oof.json").read_text())
+    seg_oof = json.loads(Path(f"data/train/artifact_seg_oof{'_' + args.seg if args.seg else ''}.json").read_text())
     syn_all = pd.read_csv(f"data/train/synth_meas_{args.synth}.csv") if args.synth else None
     img = lambda i: np.asarray(Image.open(f"data/annotation/images/{i}.png"))
 
@@ -121,6 +127,9 @@ def main():
     H = H.fillna(H.median())
     hog_man = np.stack([rotation_features(hip_crop(img(i), kp[i]["points"], i[4:])[0]) for i in hp])
     hog_det = np.stack([rotation_features(hip_crop(img(i), oof[i]["points"], i[4:])[0]) for i in hp])
+    # crops placed by every member of the detector ensemble (service.analyse does the same)
+    hog_mem = [np.stack([rotation_features(hip_crop(img(i), m[i]["points"], i[4:])[0]) for i in hp])
+               for m in (json.loads(Path(f"data/train/kp_oof_hip_{t}.json").read_text()) for t in args.members)] or [hog_det]
 
     types = {"spine": TYPES["spine"], "hip": {"v_roi": TYPES["hip"]["v_roi"], "v_posrot": "rotation"}}
     report = {"types": {}, "regions": {}}
@@ -138,18 +147,24 @@ def main():
                     for tr, va in StratifiedGroupKFold(5, shuffle=True, random_state=seed).split(hog_man, yv, groups):
                         rf = ExtraTreesClassifier(800, min_samples_leaf=3, max_features=0.1,
                                                   class_weight="balanced_subsample", random_state=0, n_jobs=4)
-                        rf.fit(np.vstack([hog_man[tr], hog_det[tr]]), np.concatenate([yv[tr], yv[tr]]))
+                        rf.fit(np.vstack([hog_man[tr]] + [h[tr] for h in hog_mem]), np.concatenate([yv[tr]] * (1 + len(hog_mem))))
                         # threshold from inner out-of-bag-like estimate: fit on training crops placed by the detector
-                        t = best_threshold(yv[tr], rf.predict_proba(hog_det[tr])[:, 1])
-                        prob[va] = rf.predict_proba(hog_det[va])[:, 1]; dec[va] = prob[va] >= t
-                    prob = blend_with_other_hip(prob, ids, alpha=0.2)
+                        t = best_threshold(yv[tr], np.mean([rf.predict_proba(h[tr])[:, 1] for h in hog_mem], 0))
+                        prob[va] = np.mean([rf.predict_proba(h[va])[:, 1] for h in hog_mem], 0); dec[va] = prob[va] >= t
+                    # weight of the other hip: chosen on the training folds by AUC, the procedure
+                    # fit_decision uses on all data (a fixed weight can be forced with DXAQC_ROT_BLEND)
+                    raw_rot, prob = prob.copy(), np.zeros(len(yv))
+                    for tr, va in StratifiedGroupKFold(5, shuffle=True, random_state=seed).split(hog_man, yv, groups):
+                        a = ROT_BLEND if ROT_BLEND is not None else max(
+                            BLEND_GRID, key=lambda a: roc_auc_score(yv[tr], blend_with_other_hip(raw_rot, ids, a)[tr]))
+                        prob[va] = blend_with_other_hip(raw_rot, ids, a)[va]
                     fuse[vt] = prob
                     for tr, va in StratifiedGroupKFold(5, shuffle=True, random_state=seed).split(hog_man, yv, groups):
                         dec[va] = prob[va] >= best_threshold(yv[tr], prob[tr])
                 else:
                     feats, signs = cols
                     syn = None
-                    if syn_all is not None and vt in SYNTH_TYPES:
+                    if syn_all is not None and vt in SYNTH_TYPES and set(feats) <= set(syn_all.columns):
                         sy = syn_all[syn_all.src.isin(ids)]
                         syn = (np.nan_to_num(sy[feats].to_numpy(float), nan=0.0), sy.label.to_numpy(int),
                                sy.src.str[:3].astype(int).to_numpy())
