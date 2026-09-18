@@ -15,6 +15,8 @@ import torch.nn as nn
 import torch.nn.functional as F
 from PIL import Image
 
+from . import synth
+
 POINTS = {
     "spine": ["col_top", "col_bottom", "crest_a", "crest_b"],
     "hip": ["fh_c", "fh_top", "fn_c", "gt_top", "gt_lat", "lt", "isch", "shaft_p", "shaft_d"],
@@ -77,13 +79,46 @@ def _axis_at(top, bottom, y):
 
 
 # ---------------------------------------------------------------- augmentation
-def augment(s: Sample, region: str, rng: np.random.Generator):
-    """Return (image, points) with field crops, flips, affine jitter and intensity changes."""
-    img, pts = s.img.astype(np.float32), s.pts.copy()
+AUG_LEVELS = ("base", "fix", "strong")
+
+
+def augment(s: Sample, region: str, rng: np.random.Generator, level: str = "strong"):
+    """Return (image, points) with field crops, flips, affine jitter and intensity changes.
+
+    level 'base' is the original recipe. It had a flaw: a landmark cropped out of the field kept its
+    coordinates, and after letterboxing it landed in the black border around the scan — so the model
+    was taught that iliac crests just below the field are "visible". On real scans with the crests cut
+    off (Некорректная укладка) it then called them present with confidence up to 0.98.
+    'fix' marks such points absent. 'strong' adds field crops placed right at the decision boundaries
+    (scan stopped at the crests, bottom field near the lesser trochanter, narrow lateral field),
+    synthetic metal on spines, blur and a wider scale range.
+    """
+    img, pts = s.img.copy(), s.pts.copy()
     h, w = img.shape
+    strong = level == "strong"
+    if strong and region == "spine" and rng.random() < 0.2:
+        xs = pts[:2, 0][~np.isnan(pts[:2, 0])]
+        img = (synth.draw_underwire(img, rng, float(xs.mean()) if len(xs) else None) if rng.random() < 0.6
+               else synth.draw_hardware(img, rng))
+    if strong and rng.random() < 0.25:
+        img = cv2.GaussianBlur(img, (0, 0), rng.uniform(0.5, 1.2))
+    img = img.astype(np.float32)
     # Field crops: the scan started lower / stopped higher. Real exports vary in height, so this is realistic.
     top = int(rng.uniform(0, 0.18) * h) if rng.random() < 0.3 else 0
     bot = int(rng.uniform(0, 0.18) * h) if rng.random() < 0.3 else 0
+    left = right = 0
+    if strong:
+        if region == "spine" and rng.random() < 0.2 and not np.isnan(pts[2:4, 1]).all():
+            bot = int(np.clip(h - np.nanmean(pts[2:4, 1]) - rng.uniform(-10, 10), 0, 0.35 * h))
+        if region == "hip" and rng.random() < 0.2:
+            ref = pts[5] if not np.isnan(pts[5]).any() else pts[7]      # lt, else shaft_p: bottom of the ROI
+            if not np.isnan(ref).any():
+                bot = int(np.clip(h - ref[1] - rng.uniform(-10, 40), 0, 0.4 * h))
+        if rng.random() < 0.2:   # narrow lateral field; hips are normalised so the lateral side is on the left
+            if region == "hip":
+                left = int(rng.uniform(0, 0.2) * w)
+            else:
+                left, right = int(rng.uniform(0, 0.08) * w), int(rng.uniform(0, 0.08) * w)
     if top or bot:
         new_h = h - top - bot
         if region == "spine" and not np.isnan(pts[0]).any() and not np.isnan(pts[1]).any():
@@ -99,14 +134,21 @@ def augment(s: Sample, region: str, rng: np.random.Generator):
         img = img[top:h - bot]
         pts[:, 1] -= top
         h = new_h
+    if left or right:
+        img = img[:, left:w - right]
+        pts[:, 0] -= left
+        w = img.shape[1]
+    if level != "base":
+        # the annotation convention: a landmark outside the field is absent, not "somewhere off the edge"
+        pts[(pts[:, 0] < -1) | (pts[:, 0] > w) | (pts[:, 1] < -1) | (pts[:, 1] > h)] = np.nan
     if region == "spine" and rng.random() < 0.5:  # mirror: left/right crests swap
         img = img[:, ::-1]
         pts[:, 0] = w - 1 - pts[:, 0]
         pts[[2, 3]] = pts[[3, 2]]
     lb = letterbox_matrix(h, w)
     ang = rng.uniform(-12, 12) if region == "spine" else rng.uniform(-10, 10)
-    aff = cv2.getRotationMatrix2D((SIZE / 2, SIZE / 2), ang, rng.uniform(0.92, 1.08))
-    aff[:, 2] += rng.uniform(-6, 6, 2)
+    aff = cv2.getRotationMatrix2D((SIZE / 2, SIZE / 2), ang, rng.uniform(0.85, 1.15) if strong else rng.uniform(0.92, 1.08))
+    aff[:, 2] += rng.uniform(-10, 10, 2) if strong else rng.uniform(-6, 6, 2)
     m = compose(aff.astype(np.float32), lb)
     out = cv2.warpAffine(np.ascontiguousarray(img), m, (SIZE, SIZE), flags=cv2.INTER_LINEAR, borderValue=0)
     p = apply(m, pts)
@@ -144,8 +186,8 @@ def worker_init(worker_id):
 
 
 class KPDataset(torch.utils.data.Dataset):
-    def __init__(self, samples, region, train, seed=0):
-        self.s, self.region, self.train = samples, region, train
+    def __init__(self, samples, region, train, seed=0, aug="strong"):
+        self.s, self.region, self.train, self.aug = samples, region, train, aug
         self.rng = np.random.default_rng(seed)
 
     def __len__(self):
@@ -154,7 +196,7 @@ class KPDataset(torch.utils.data.Dataset):
     def __getitem__(self, i):
         s = self.s[i]
         if self.train:
-            img, p = augment(s, self.region, self.rng)
+            img, p = augment(s, self.region, self.rng, self.aug)
         else:
             img, m = prepare(s.img)
             p = apply(m, s.pts)
@@ -222,8 +264,11 @@ def decode(hm: torch.Tensor):
 @torch.no_grad()
 def predict(model, images, region, device, flips=None, vis_threshold=0.5):
     """Keypoints in original pixel coordinates for a list of uint8 images (already in normalised orientation
-    unless flips[i] is True, in which case the image is a left hip that gets mirrored here and un-mirrored after)."""
-    model.eval()
+    unless flips[i] is True, in which case the image is a left hip that gets mirrored here and un-mirrored after).
+
+    model may be a list: an ensemble of models trained with different seeds, whose heatmaps and in-frame
+    logits are averaged before decoding."""
+    models = list(model) if isinstance(model, (list, tuple)) else [model]
     flips = flips or [False] * len(images)
     batch, mats, shapes = [], [], []
     for img, fl in zip(images, flips):
@@ -231,11 +276,15 @@ def predict(model, images, region, device, flips=None, vis_threshold=0.5):
         x, m = prepare(im)
         batch.append(x); mats.append(m); shapes.append(im.shape)
     x = torch.from_numpy(np.stack(batch))[:, None].to(device)
-    hm, vis = model(x)
-    if region == "spine":  # test-time mirror: average with the flipped prediction (crests swapped back)
-        hm_f, vis_f = model(torch.flip(x, dims=[3]))
-        hm = (hm + torch.flip(hm_f, dims=[3])[:, [0, 1, 3, 2]]) / 2
-        vis = (vis + vis_f[:, [0, 1, 3, 2]]) / 2
+    hm = vis = 0
+    for net in models:
+        net.eval()
+        h_, v_ = net(x)
+        if region == "spine":  # test-time mirror: average with the flipped prediction (crests swapped back)
+            hm_f, vis_f = net(torch.flip(x, dims=[3]))
+            h_ = (h_ + torch.flip(hm_f, dims=[3])[:, [0, 1, 3, 2]]) / 2
+            v_ = (v_ + vis_f[:, [0, 1, 3, 2]]) / 2
+        hm, vis = hm + h_ / len(models), vis + v_ / len(models)
     pts = decode(hm).cpu().numpy()
     conf = torch.sigmoid(vis).cpu().numpy()
     out = []

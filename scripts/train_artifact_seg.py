@@ -103,7 +103,9 @@ def main():
     ap.add_argument("--epochs", type=int, default=80)
     ap.add_argument("--repeats", type=int, default=1)
     ap.add_argument("--save-final", action="store_true")
+    ap.add_argument("--tag", default="", help="suffix of the output files, to compare variants without overwriting")
     args = ap.parse_args()
+    sfx = f"_{args.tag}" if args.tag else ""
     device = "mps" if torch.backends.mps.is_available() else "cpu"
     kp = json.loads(Path("data/train/keypoints.json").read_text())
     oof = json.loads(Path("data/train/kp_oof_spine.json").read_text())
@@ -134,16 +136,16 @@ def main():
         for k, s in (("seg", o), ("hand", hand), ("ens", ens)):
             res[k].append(roc_auc_score(y, s)); pooled[k] += s / args.repeats
     # per-image out-of-fold scores, so the decision layer can use the net as a feature
-    Path("data/train/artifact_seg_oof.json").write_text(json.dumps(
+    Path(f"data/train/artifact_seg_oof{sfx}.json").write_text(json.dumps(
         {i: float(v) for i, v in zip(ids, pooled_oof / args.repeats)}, ensure_ascii=False, indent=1))
-    print("saved data/train/artifact_seg_oof.json")
+    print(f"saved data/train/artifact_seg_oof{sfx}.json")
     print(f"\nforeign bodies, {len(y)} spines ({y.sum()} with artifacts)")
     out = {}
     for k in res:
         lo, hi = bootstrap_ci(y, pooled[k])
         out[k] = {"auc": round(float(np.mean(res[k])), 3), "ci95": [round(lo, 3), round(hi, 3)]}
         print(f"  {k:4s} AUC {np.mean(res[k]):.3f}  (95% CI {lo:.2f}–{hi:.2f})")
-    Path("data/train/artifact_seg_eval.json").write_text(json.dumps(out, indent=1))
+    Path(f"data/train/artifact_seg_eval{sfx}.json").write_text(json.dumps(out, indent=1))
     if args.save_final:
         net = train([it for it in items if it["usable"]], device, args.epochs, seed=42)
         torch.save({"state_dict": net.state_dict(), "size": K.SIZE, "margin": K.MARGIN}, "models/artifact_seg.pt")

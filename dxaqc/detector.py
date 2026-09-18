@@ -19,15 +19,25 @@ def best_device():
 
 
 class KeypointDetector:
+    """kp_<region>.pt, plus kp_<region>_<n>.pt when present: an ensemble of detectors trained with different
+    seeds and augmentations, whose heatmaps are averaged (kpmodel.predict). A single detector is one random
+    draw — two draws with identical point error differed by 0.05 AUC on hip rotation downstream, because
+    the rotation model reads crops placed by these points; the average of several draws is steadier."""
+
     def __init__(self, model_dir="models", device=None):
         self.device = device or best_device()
         self.models = {}
         for region in ("spine", "hip"):
-            ckpt = torch.load(Path(model_dir) / f"kp_{region}.pt", map_location="cpu", weights_only=False)
-            assert ckpt["points"] == K.POINTS[region] and ckpt["size"] == K.SIZE and ckpt["margin"] == K.MARGIN
-            net = K.KPNet(len(ckpt["points"]))
-            net.load_state_dict(ckpt["state_dict"])
-            self.models[region] = net.to(self.device).eval()
+            nets = []
+            for f in sorted(Path(model_dir).glob(f"kp_{region}*.pt")):
+                ckpt = torch.load(f, map_location="cpu", weights_only=False)
+                assert ckpt["points"] == K.POINTS[region] and ckpt["size"] == K.SIZE and ckpt["margin"] == K.MARGIN
+                net = K.KPNet(len(ckpt["points"]))
+                net.load_state_dict(ckpt["state_dict"])
+                nets.append(net.to(self.device).eval())
+            if not nets:
+                raise FileNotFoundError(f"no landmark model kp_{region}*.pt in {model_dir}")
+            self.models[region] = nets
 
     def __call__(self, img: np.ndarray, region: str, vis_threshold=0.5):
         """img: uint8 array as stored in the DICOM; region: 'spine' | 'hip_left' | 'hip_right'.

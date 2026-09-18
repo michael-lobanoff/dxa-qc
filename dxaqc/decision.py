@@ -28,6 +28,13 @@ TYPES = {
               "v_artifact": (["area_top", "seg_area"], [1, 1])},
     "hip": {"v_roi": (["margin_bottom", "margin_top"], [-1, -1]), "v_posrot": (["rotation"], [1])},
 }
+# Types whose feature weights also learn from synthetic violations (scripts/synth_decision.py): the two
+# rarest geometric ones, 10 and 7 positives. With so few, the weights of the two features jump from fold
+# to fold; synthetic scans labelled by the ТЗ rule anchor them. Re-confirmed on 20 fresh CV repeats:
+# v_axis AUC 0.871 -> 0.882, F1 0.357 -> 0.398; v_roi AUC 0.874 -> 0.892, F1 0.537 -> 0.557. Flat for
+# weights 0.05-0.2; at 1.0 the rule starts to override the experts (whose tilt positives start at 3°).
+SYNTH_TYPES = ("v_axis", "v_roi")
+SYNTH_WEIGHT = 0.1
 # Wording fixed by the organisers (разъяснения V2, вопрос 6): exactly these strings, several joined
 # by "; ", empty when there is no violation. macro-F1 is computed over this list.
 NAMES_RU = {"v_axis": "Не выравнена ось позвоночника", "v_pos": "Некорректная укладка",
@@ -80,15 +87,29 @@ class Monotone:
     A percentile always lives on [0, 1], so the calibration is comparable whatever the fold.
     """
 
+    INTERP = True
+
     def __init__(self, signs, lr_weights=True, percentile=True):
         self.signs, self.lr_weights, self.percentile = np.asarray(signs, float), lr_weights, percentile
+        self.interp = self.INTERP
 
-    def fit(self, X, y):
+    def fit(self, X, y, X_syn=None, y_syn=None, w_syn=0.0):
+        """X_syn, y_syn: synthetic scans (scripts/synth_decision.py), each weighing w_syn of a real one.
+        They only inform the relative weights of the features; standardisation, the percentile reference
+        and the calibration are fitted on real scans, so the probability scale stays that of real data."""
         Z = X * self.signs
         self.mu, self.sd = Z.mean(0), Z.std(0) + 1e-9
         Z = (Z - self.mu) / self.sd
         if self.lr_weights and Z.shape[1] > 1:
-            w = LogisticRegression(C=1.0, class_weight="balanced", max_iter=2000).fit(Z, y).coef_[0]
+            if X_syn is not None and len(X_syn) and w_syn > 0:
+                Zs = (np.asarray(X_syn, float) * self.signs - self.mu) / self.sd
+                yy = np.concatenate([y, y_syn])
+                # the real scans keep the "balanced" class weights; every synthetic scan weighs w_syn of them
+                cw = np.where(yy == 1, len(y) / (2 * max(y.sum(), 1)), len(y) / (2 * max((y == 0).sum(), 1)))
+                sw = np.concatenate([np.ones(len(Z)), np.full(len(Zs), float(w_syn))]) * cw
+                w = LogisticRegression(C=1.0, max_iter=2000).fit(np.vstack([Z, Zs]), yy, sample_weight=sw).coef_[0]
+            else:
+                w = LogisticRegression(C=1.0, class_weight="balanced", max_iter=2000).fit(Z, y).coef_[0]
             self.w = np.clip(w, 0, None) if (w > 0).any() else np.ones(Z.shape[1])
         else:
             self.w = np.ones(Z.shape[1])
@@ -102,7 +123,23 @@ class Monotone:
     def _scale(self, s):
         if not self.percentile:
             return s
-        return np.searchsorted(self.ref, s) / max(len(self.ref), 1)
+        return self._pct(s)
+
+    def _pct(self, s):
+        """Percentile of s among the training scores.
+
+        A plain searchsorted gives a new image the rank of the NEXT training score above it, so every
+        unseen image is shifted one step towards "bad" relative to the training images the threshold
+        was chosen on. Where the threshold sits right next to a handful of positives (6-10 for the rare
+        types) that step is exactly what separates a clean scan from a flagged one. Interpolating
+        between mid-ranks treats training and new images alike. Models pickled before this change
+        have no `interp` attribute and keep the old behaviour until they are refitted.
+        """
+        n = max(len(self.ref), 1)
+        if not getattr(self, "interp", False):
+            return np.searchsorted(self.ref, s) / n
+        u, first, cnt = np.unique(self.ref, return_index=True, return_counts=True)
+        return np.interp(s, u, (first + cnt / 2) / n, left=0.0, right=1.0)
 
     def predict_proba(self, X):
         s = ((X * self.signs - self.mu) / self.sd) @ self.w
@@ -112,7 +149,7 @@ class Monotone:
     def rank_score(self, X):
         """Where this image falls in the training distribution of the score, in [0, 1]."""
         s = ((X * self.signs - self.mu) / self.sd) @ self.w
-        return np.searchsorted(self.ref, s) / max(len(self.ref), 1)
+        return self._pct(s)
 
 
 def blend_rotation(own, other, alpha):
@@ -148,11 +185,14 @@ class DecisionModel:
     sensitive and no better on F1 (0.63 vs 0.65).
     """
 
-    def fit(self, region, feats, labels, y_img=None):
+    def fit(self, region, feats, labels, y_img=None, synth=None):
+        """synth: {type: (X_syn, y_syn)} synthetic scans for the SYNTH_TYPES, measured like real ones."""
         self.region, self.models, self.thresholds = region, {}, {}
         probs = {}
+        synth = synth or {}
         for vt, (cols, signs) in TYPES[region].items():
-            m = Monotone(signs).fit(feats[vt], labels[vt])
+            xs, ys = synth.get(vt, (None, None))
+            m = Monotone(signs).fit(feats[vt], labels[vt], xs, ys, SYNTH_WEIGHT if vt in SYNTH_TYPES else 0.0)
             self.models[vt] = m
             probs[vt] = m.predict_proba(feats[vt])[:, 1]
             self.thresholds[vt] = float(best_threshold(labels[vt], probs[vt]))

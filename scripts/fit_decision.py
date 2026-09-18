@@ -14,7 +14,7 @@ from PIL import Image
 from sklearn.ensemble import ExtraTreesClassifier
 from sklearn.model_selection import StratifiedGroupKFold
 
-from dxaqc.decision import TYPES, DecisionModel, hip_measurements, spine_measurements
+from dxaqc.decision import SYNTH_TYPES, TYPES, DecisionModel, hip_measurements, spine_measurements
 from dxaqc.hipcrop import hip_crop, rotation_features
 
 
@@ -31,11 +31,19 @@ def rotation_forest():
 
 
 def main():
+    import argparse
+    ap = argparse.ArgumentParser()
+    ap.add_argument("--tag", default="", help="detector: kp_oof_<region>_<tag>.json (the one shipped in models/)")
+    ap.add_argument("--synth", default=None, help="synthetic scans for the rare types: data/train/synth_meas_<synth>.csv")
+    args = ap.parse_args()
+    sfx = f"_{args.tag}" if args.tag else ""
     idx = pd.read_csv("data/train/image_index.csv")
     idx["id"] = idx.n.map("{:03d}".format) + "_" + idx.region
     idx = idx.set_index("id")
     kp = json.loads(Path("data/train/keypoints.json").read_text())
-    oof = {**json.loads(Path("data/train/kp_oof_spine.json").read_text()), **json.loads(Path("data/train/kp_oof_hip.json").read_text())}
+    oof = {**json.loads(Path(f"data/train/kp_oof_spine{sfx}.json").read_text()),
+           **json.loads(Path(f"data/train/kp_oof_hip{sfx}.json").read_text())}
+    syn_all = pd.read_csv(f"data/train/synth_meas_{args.synth}.csv") if args.synth else None
     seg_oof = json.loads(Path("data/train/artifact_seg_oof.json").read_text())
     img = {i: np.asarray(Image.open(f"data/annotation/images/{i}.png")) for i in oof}
 
@@ -82,7 +90,14 @@ def main():
                  for vt, (cols, _) in TYPES[region].items()}
         labels = {vt: idx.loc[ids, vt].astype(int).to_numpy() for vt in TYPES[region]}
         y_img = idx.loc[ids, "y"].astype(int).to_numpy()
-        out[region] = DecisionModel().fit(region, feats, labels, y_img)
+        synth = {}
+        if syn_all is not None:
+            sy = syn_all[syn_all.src.isin(ids)]
+            for vt, (cols, _) in TYPES[region].items():
+                if vt in SYNTH_TYPES:
+                    synth[vt] = (np.nan_to_num(sy[cols].to_numpy(float), nan=0.0), sy.label.to_numpy(int))
+            print(f"{region}: synthetic scans {len(sy)}")
+        out[region] = DecisionModel().fit(region, feats, labels, y_img, synth)
         print(f"{region}: {len(ids)} images; per-type thresholds:",
               {vt: round(t, 3) for vt, t in out[region].thresholds.items()},
               "| image thresholds:", {k: round(v, 3) for k, v in out[region].image_thresholds.items()})

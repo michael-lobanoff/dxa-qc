@@ -18,7 +18,7 @@ from sklearn.model_selection import StratifiedGroupKFold
 from sklearn.pipeline import make_pipeline
 from sklearn.preprocessing import StandardScaler
 
-from dxaqc.decision import FUSION, TYPES, Monotone, sensitivity_threshold, spine_measurements
+from dxaqc.decision import FUSION, SYNTH_TYPES, SYNTH_WEIGHT, TYPES, Monotone, sensitivity_threshold, spine_measurements
 from dxaqc.features import hip_features
 from dxaqc.hipcrop import hip_crop, rotation_features
 
@@ -50,11 +50,17 @@ def blend_with_other_hip(prob, ids, alpha):
     return out
 
 
-def cv_type(X, y, groups, make_model, seed):
-    """Out-of-fold probability, decision (threshold from the training folds) and fusion score."""
+def cv_type(X, y, groups, make_model, seed, syn=None):
+    """Out-of-fold probability, decision (threshold from the training folds) and fusion score.
+    syn: (X_syn, y_syn, study of the source scan) — only variants of training-fold scans are used."""
     prob, dec, rank = np.zeros(len(y)), np.zeros(len(y), bool), np.zeros(len(y))
     for tr, va in StratifiedGroupKFold(5, shuffle=True, random_state=seed).split(X, y, groups):
-        m = make_model(); m.fit(X[tr], y[tr])
+        m = make_model()
+        if syn is None:
+            m.fit(X[tr], y[tr])
+        else:
+            keep = np.isin(syn[2], groups[tr])
+            m.fit(X[tr], y[tr], syn[0][keep], syn[1][keep], SYNTH_WEIGHT)
         t = best_threshold(y[tr], m.predict_proba(X[tr])[:, 1])
         prob[va] = m.predict_proba(X[va])[:, 1]; dec[va] = prob[va] >= t
         rank[va] = m.rank_score(X[va])
@@ -80,12 +86,22 @@ def bootstrap(y, score, dec, n=2000, seed=0):
 
 
 def main():
+    import argparse
+    ap = argparse.ArgumentParser()
+    ap.add_argument("--tag", default="", help="detector variant: reads kp_oof_<region>_<tag>.json, writes pipeline_eval_<tag>.json")
+    ap.add_argument("--synth", default=None, help="synthetic scans for the rare types: data/train/synth_meas_<synth>.csv")
+    ap.add_argument("--out", default=None, help="suffix of the output files (default: the tag)")
+    args = ap.parse_args()
+    sfx = f"_{args.tag}" if args.tag else ""
+    out_sfx = sfx if args.out is None else (f"_{args.out}" if args.out else "")
     idx = pd.read_csv("data/train/image_index.csv")
     idx["id"] = idx.n.map("{:03d}".format) + "_" + idx.region
     idx = idx.set_index("id")
     kp = json.loads(Path("data/train/keypoints.json").read_text())
-    oof = {**json.loads(Path("data/train/kp_oof_spine.json").read_text()), **json.loads(Path("data/train/kp_oof_hip.json").read_text())}
+    oof = {**json.loads(Path(f"data/train/kp_oof_spine{sfx}.json").read_text()),
+           **json.loads(Path(f"data/train/kp_oof_hip{sfx}.json").read_text())}
     seg_oof = json.loads(Path("data/train/artifact_seg_oof.json").read_text())
+    syn_all = pd.read_csv(f"data/train/synth_meas_{args.synth}.csv") if args.synth else None
     img = lambda i: np.asarray(Image.open(f"data/annotation/images/{i}.png"))
 
     # ---------------- spine features
@@ -132,7 +148,13 @@ def main():
                         dec[va] = prob[va] >= best_threshold(yv[tr], prob[tr])
                 else:
                     feats, signs = cols
-                    prob, dec, rank = cv_type(F[feats].to_numpy(float), yv, groups, lambda: Monotone(signs, lr_weights=True), seed)
+                    syn = None
+                    if syn_all is not None and vt in SYNTH_TYPES:
+                        sy = syn_all[syn_all.src.isin(ids)]
+                        syn = (np.nan_to_num(sy[feats].to_numpy(float), nan=0.0), sy.label.to_numpy(int),
+                               sy.src.str[:3].astype(int).to_numpy())
+                    prob, dec, rank = cv_type(F[feats].to_numpy(float), yv, groups, lambda: Monotone(signs, lr_weights=True),
+                                              seed, syn)
                 probs[vt], decs[vt] = prob, dec
                 fuse[vt] = rank if FUSION[region] == "percentile" else prob
             # combined score for quality_prob: percentiles for the spine types, probabilities for hips,
@@ -210,8 +232,8 @@ def main():
     print(f"\nStudy verdict (ТЗ 8.4: «чувствительность выявления исследований»): n={v['n'][0]} ({v['n'][1]} bad)  "
           f"AUC {v['auc'][0]:.3f} {v['auc'][1]}  F1 {v['f1'][0]:.3f} {v['f1'][1]}  sens {v['sens'][0]:.2f}  spec {v['spec'][0]:.2f}")
     print(f"macro-F1 over violation types: {report['macro_f1_types']:.3f}")
-    Path("data/train/pipeline_eval.json").write_text(json.dumps(report, ensure_ascii=False, indent=1))
-    pd.concat(oof_rows).to_csv("data/train/pipeline_oof.csv", index=False)
+    Path(f"data/train/pipeline_eval{out_sfx}.json").write_text(json.dumps(report, ensure_ascii=False, indent=1))
+    pd.concat(oof_rows).to_csv(f"data/train/pipeline_oof{out_sfx}.csv", index=False)
 
 
 if __name__ == "__main__":
