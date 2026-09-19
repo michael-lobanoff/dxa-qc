@@ -58,8 +58,8 @@ def render_overlay(img, result):
         for k, v in p.items():
             if v:
                 cv2.circle(rgb, _pt(v), 5, CYAN, -1, cv2.LINE_AA)
-        if p.get("fh_top"):
-            x, y = _pt(p["fh_top"]); cv2.arrowedLine(rgb, (x, y), (x, 0), YELLOW, 1, cv2.LINE_AA, tipLength=0.05)
+        if p.get("gt_top"):   # top margin: from the tip of the greater trochanter (geometry.hip_margins_mm)
+            x, y = _pt(p["gt_top"]); cv2.arrowedLine(rgb, (x, y), (x, 0), YELLOW, 1, cv2.LINE_AA, tipLength=0.05)
         low = p.get("lt") or p.get("shaft_p")
         if low:
             x, y = _pt(low); cv2.arrowedLine(rgb, (x, y), (x, h * SCALE - 1), YELLOW, 1, cv2.LINE_AA, tipLength=0.05)
@@ -76,13 +76,12 @@ def render_overlay(img, result):
         cv2.rectangle(rgb, (x0, y0), (x1, y1), CYAN, 1, cv2.LINE_AA)
         cv2.putText(rgb, r["level"], (x0 + 4, y0 + 16), cv2.FONT_HERSHEY_SIMPLEX, 0.4, CYAN, 1, cv2.LINE_AA)
     if result.get("implant"):
-        lines.append("IMPLANT: not evaluated"); color = YELLOW
-    else:
-        codes = {"v_axis": "axis tilt", "v_pos": "positioning (iliac crests)", "v_artifact": "foreign body",
-                 "v_roi": "field margins", "v_posrot": "positioning/rotation"}
-        lines.append("QUALITY: " + (", ".join(codes[v] for v in result["violations"]) if bad else "OK")
-                     + (f"  (p={result['score']:.2f})" if result.get("score") is not None else ""))
-        color = RED if bad else GREEN
+        lines.append("endoprosthesis: positioning judged as for any hip")
+    codes = {"v_axis": "axis tilt", "v_pos": "positioning (iliac crests)", "v_artifact": "foreign body",
+             "v_roi": "field margins", "v_posrot": "positioning/rotation"}
+    lines.append("QUALITY: " + (", ".join(codes[v] for v in result["violations"]) if bad else "OK")
+                 + (f"  (p={result['score']:.2f})" if result.get("score") is not None else ""))
+    color = RED if bad else GREEN
     return _with_header(rgb, lines, color)
 
 

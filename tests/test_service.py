@@ -172,4 +172,5 @@ def test_refuses_plain_radiographs(service, tmp_path):
                     lambda ds: setattr(ds, "PixelSpacing", [0.143, 0.143]))
     row = service.process_file(path)
     assert row["violation_codes"] == "unsupported" and row["processing_status"] == "Success"
-    assert "не денситометрия" in row["violation_type"]
+    # violation_type is a closed vocabulary: the refusal reason goes to details
+    assert row["violation_type"] == "" and "не денситометрия" in row["details"]

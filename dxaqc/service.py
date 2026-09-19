@@ -74,10 +74,11 @@ class QCService:
         if region == "spine":
             meas = spine_measurements(img, points, conf, mm_per_px, self.segmenter.area(img))
         else:
-            if float((img >= img.max() - 2).mean()) > IMPLANT_METAL_FRACTION:
-                out.update(implant=True, measurements={}, probs={}, violations=[], score=None, quality_class=0)
-                return out
+            # Q&A 17.09: a hip with an endoprosthesis is judged like any other hip (positioning and field
+            # are still the radiographer's job); the implant is only reported as a note in `details`.
+            implant = float((img >= img.max() - 2).mean()) > IMPLANT_METAL_FRACTION
             meas = hip_measurements(img, points, conf, region, mm_per_px)
+            meas["implant"] = implant
             # Rotation reads a crop aligned by the landmarks, and is sensitive to which detector placed
             # them. With an ensemble, the forest looks at the crop of every member and the answers are
             # averaged: on new detectors 0.826 AUC, against 0.809 for one crop from the averaged points.
@@ -100,7 +101,7 @@ class QCService:
             quality_class, score = 1, max(score, 0.9)
             if "v_pos" not in violations:
                 violations.append("v_pos")
-        out.update(implant=False, measurements=meas, probs=probs, violations=violations, score=score,
+        out.update(implant=bool(meas.get("implant", False)), measurements=meas, probs=probs, violations=violations, score=score,
                    quality_class=quality_class, presumed=presumed)
         return out
 
@@ -119,51 +120,52 @@ class QCService:
             mm, mm_src = pixel_spacing_mm(ds, img.shape)
             if mm_src in ("PixelSpacing", "ImagerPixelSpacing") and min(mm) < DXA_MIN_MM_PER_PX:
                 # a real spacing tag this fine means a radiograph (0.12-0.14 mm), not DXA (0.6 mm)
+                # violation_type is a closed vocabulary (разъяснения V2), so the reason goes to details
                 row.update(anatomical_region="не определена", quality_class=0, processing_status="Success",
-                           violation_type=f"оценка не проводится: размер пикселя {min(mm):.2f} мм — это не денситометрия",
-                           violation_codes="unsupported", details=f"{mm[0]:.3f}x{mm[1]:.3f} мм из тега {mm_src}")
+                           violation_type="", violation_codes="unsupported",
+                           details=f"оценка не проводится: размер пикселя {min(mm):.2f} мм — это не денситометрия "
+                                   f"({mm[0]:.3f}x{mm[1]:.3f} мм из тега {mm_src})")
                 row["time_of_processing"] = round(time.time() - t0, 3)
                 return row
             r = self.analyse(img, mm, rotation_override)
             row["mm_per_px"] = f"{mm[0]:.3f}x{mm[1]:.3f}" if mm[0] != mm[1] else round(mm[0], 4)
             row["mm_per_px_source"] = mm_src
             if r.get("unsupported"):
-                row.update(anatomical_region="не определена", quality_class=0,
-                           violation_type=f"оценка не проводится: {r['reason']}", violation_codes="unsupported",
-                           details="; ".join(f"{k} {v:.2f}" for k, v in r["checks"].items()),
+                row.update(anatomical_region="не определена", quality_class=0, violation_type="", violation_codes="unsupported",
+                           details=f"оценка не проводится: {r['reason']} ("
+                                   + "; ".join(f"{k} {v:.2f}" for k, v in r["checks"].items()) + ")",
                            processing_status="Success")
                 row["time_of_processing"] = round(time.time() - t0, 3)
                 return row
             row["anatomical_region"] = REGION_RU[r["region"]]
             row["_region"] = r["region"]
             row["_rotation"] = r.get("measurements", {}).get("rotation_own")
-            if r["implant"]:
-                row.update(quality_class=0, violation_type="эндопротез: оценка качества не проводится", violation_codes="implant")
+            row.update(quality_class=r["quality_class"], quality_prob=round(r["score"], 4),
+                       violation_type="; ".join(NAMES_RU[v] for v in r["violations"]),
+                       violation_codes=";".join(r["violations"]))
+            m = r["measurements"]
+            if r["region"] == "spine":
+                bits = []
+                if m.get("tilt_deg") is not None:
+                    bits.append(f"наклон оси {m['tilt_deg']:.1f}°")
+                if m.get("span_vert") is not None:
+                    bits.append(f"над гребнями {m['span_vert']:.1f} позвонка")
+                if m.get("vert_pitch_mm"):
+                    bits.append(f"высота позвонка {m['vert_pitch_mm']:.0f} мм")
+                if m.get("printed_markup"):
+                    bits.append("на снимке впечатана разметка аппарата: инородные тела не оцениваются")
+                row["details"] = "; ".join(bits)
             else:
-                row.update(quality_class=r["quality_class"], quality_prob=round(r["score"], 4),
-                           violation_type="; ".join(NAMES_RU[v] for v in r["violations"]),
-                           violation_codes=";".join(r["violations"]))
-                m = r["measurements"]
-                if r["region"] == "spine":
-                    bits = []
-                    if m.get("tilt_deg") is not None:
-                        bits.append(f"наклон оси {m['tilt_deg']:.1f}°")
-                    if m.get("span_vert") is not None:
-                        bits.append(f"над гребнями {m['span_vert']:.1f} позвонка")
-                    if m.get("vert_pitch_mm"):
-                        bits.append(f"высота позвонка {m['vert_pitch_mm']:.0f} мм")
-                    if m.get("printed_markup"):
-                        bits.append("на снимке впечатана разметка аппарата: инородные тела не оцениваются")
-                    row["details"] = "; ".join(bits)
-                else:
-                    ru = {"top": "сверху", "bottom": "снизу", "lateral": "сбоку"}
-                    bits = [f"поле {ru[k]} {m[f'margin_{k}']:.0f} мм" for k in ("top", "bottom", "lateral")
-                            if m.get(f"margin_{k}") is not None]
-                    if m.get("shaft_angle") is not None:
-                        bits.append(f"ось бедра {m['shaft_angle']:.0f}° к вертикали")
-                    row["details"] = "; ".join(bits)
-                if r.get("presumed"):
-                    row["details"] = (row["details"] + "; " if row["details"] else "") + "тип указан как наиболее вероятный"
+                ru = {"top": "сверху (от большого вертела)", "bottom": "снизу", "lateral": "сбоку"}
+                bits = [f"поле {ru[k]} {m[f'margin_{k}']:.0f} мм" for k in ("top", "bottom", "lateral")
+                        if m.get(f"margin_{k}") is not None]
+                if m.get("shaft_angle") is not None:
+                    bits.append(f"ось бедра {m['shaft_angle']:.0f}° к вертикали")
+                if m.get("implant"):
+                    bits.append("эндопротез (укладка оценена как у обычного бедра)")
+                row["details"] = "; ".join(bits)
+            if r.get("presumed"):
+                row["details"] = (row["details"] + "; " if row["details"] else "") + "тип указан как наиболее вероятный"
             row["processing_status"] = "Success"
             if vis_dir is not None:
                 from PIL import Image
