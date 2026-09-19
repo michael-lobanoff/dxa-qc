@@ -13,6 +13,10 @@ from dxaqc.service import QCService, read_dicom_image
 
 ROOT = Path(__file__).resolve().parents[1]
 SAMPLES = sorted((ROOT / "data/test_sample").glob("*.dcm"))
+
+# The organisers' sample DICOMs are medical data and are not in the repository: put them in
+# data/test_sample to run the tests that need them; everything else runs without.
+needs_samples = pytest.mark.skipif(not SAMPLES, reason="нужны тестовые DICOM организаторов в data/test_sample")
 EXPECTED_REGION = {"ПОП": "Поясничный отдел позвоночника", "ППОБ": "Проксимальный отдел бедра",
                    "ЛПОБ": "Проксимальный отдел бедра"}
 
@@ -31,8 +35,8 @@ def _variant(src, tmp_path, name, transform):
     return out
 
 
+@needs_samples
 def test_organizer_samples_regions(service):
-    assert SAMPLES, "data/test_sample is missing"
     for p in SAMPLES:
         row = service.process_file(p)
         assert row["processing_status"] == "Success", row["error"]
@@ -41,6 +45,7 @@ def test_organizer_samples_regions(service):
         assert row["image_uid"] and row["study_uid"]
 
 
+@needs_samples
 def test_sixteen_bit_and_monochrome1_give_same_verdict(service, tmp_path):
     src = SAMPLES[0]
     base = service.process_file(src)
@@ -71,6 +76,7 @@ def test_broken_files_are_failures_not_crashes(service, tmp_path, content):
     assert row["processing_status"] == "Failure" and row["error"]
 
 
+@needs_samples
 def test_dicom_without_pixels_is_failure(service, tmp_path):
     ds = pydicom.dcmread(SAMPLES[0])
     del ds.PixelData
@@ -79,6 +85,7 @@ def test_dicom_without_pixels_is_failure(service, tmp_path):
     assert service.process_file(p)["processing_status"] == "Failure"
 
 
+@needs_samples
 def test_reproducible(service):
     a = [service.process_file(p) for p in SAMPLES]
     b = [service.process_file(p) for p in SAMPLES]
@@ -114,6 +121,7 @@ def test_pixel_spacing_override(monkeypatch):
     assert (sx, sy) == (0.6, 1.05) and src == "DXAQC_PIXEL_MM"
 
 
+@needs_samples
 def test_vertebrae_pitch_is_anatomical(service):
     """The vertebral train gives a plausible pitch (body + disc) on a real spine scan."""
     from dxaqc.vertebrae import find
@@ -127,6 +135,7 @@ def test_vertebrae_pitch_is_anatomical(service):
     assert np.all(np.diff([p[1] for p in v["points"]]) > 0)   # ordered top to bottom
 
 
+@needs_samples
 def test_refuses_foreign_images(service, tmp_path):
     """A blank frame, noise and a rotated scan are refused instead of getting a quality verdict."""
     import numpy as np
@@ -146,12 +155,14 @@ def test_refuses_foreign_images(service, tmp_path):
         assert row["quality_class"] == 0 and row["anatomical_region"] == "не определена"
 
 
+@needs_samples
 def test_real_scans_are_not_refused(service):
     """The guard must not reject the organisers' own samples."""
     for path in SAMPLES:
         assert service.process_file(path)["violation_codes"] != "unsupported", path.name
 
 
+@needs_samples
 def test_refuses_plain_radiographs(service, tmp_path):
     """A plain lumbar radiograph is not densitometry: refuse by pixel size and by image size.
 

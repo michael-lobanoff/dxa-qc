@@ -14,7 +14,7 @@ from PIL import Image
 from sklearn.ensemble import ExtraTreesClassifier
 from sklearn.model_selection import StratifiedGroupKFold
 
-from dxaqc.decision import ROTATION_BLEND, SYNTH_TYPES, TYPES, DecisionModel, hip_measurements, spine_measurements
+from dxaqc.decision import ROTATION_BLEND, ROTATION_MAX_FEATURES, SYNTH_TYPES, TYPES, DecisionModel, hip_measurements, spine_measurements
 from dxaqc import hipcrop
 from dxaqc.hipcrop import hip_crop, rotation_features
 
@@ -27,7 +27,7 @@ def spacing(idx, i):
 def rotation_forest():
     """Extremely randomised trees beat a random forest here (honest AUC 0.825 against 0.807): with 150
     hips and a 1152-dimensional descriptor the extra randomisation is the cheapest regulariser."""
-    return ExtraTreesClassifier(800, min_samples_leaf=3, max_features=0.1,
+    return ExtraTreesClassifier(800, min_samples_leaf=3, max_features=ROTATION_MAX_FEATURES,
                                 class_weight="balanced_subsample", random_state=0, n_jobs=4)
 
 

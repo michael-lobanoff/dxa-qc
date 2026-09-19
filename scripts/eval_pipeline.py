@@ -18,7 +18,7 @@ from sklearn.model_selection import StratifiedGroupKFold
 from sklearn.pipeline import make_pipeline
 from sklearn.preprocessing import StandardScaler
 
-from dxaqc.decision import FUSION, ROTATION_BLEND, SYNTH_TYPES, SYNTH_WEIGHT, TYPES, Monotone, sensitivity_threshold, spine_measurements
+from dxaqc.decision import FUSION, ROTATION_BLEND, ROTATION_MAX_FEATURES, SYNTH_TYPES, SYNTH_WEIGHT, TYPES, Monotone, sensitivity_threshold, spine_measurements
 from dxaqc.features import hip_features
 from dxaqc.hipcrop import hip_crop, rotation_features
 
@@ -145,7 +145,7 @@ def main():
                 if cols == "rotation":
                     prob, dec = np.zeros(len(yv)), np.zeros(len(yv), bool)
                     for tr, va in StratifiedGroupKFold(5, shuffle=True, random_state=seed).split(hog_man, yv, groups):
-                        rf = ExtraTreesClassifier(800, min_samples_leaf=3, max_features=0.1,
+                        rf = ExtraTreesClassifier(800, min_samples_leaf=3, max_features=ROTATION_MAX_FEATURES,
                                                   class_weight="balanced_subsample", random_state=0, n_jobs=4)
                         rf.fit(np.vstack([hog_man[tr]] + [h[tr] for h in hog_mem]), np.concatenate([yv[tr]] * (1 + len(hog_mem))))
                         # threshold from inner out-of-bag-like estimate: fit on training crops placed by the detector

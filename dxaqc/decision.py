@@ -153,6 +153,10 @@ class Monotone:
 
 
 ROTATION_BLEND = 0.2   # weight of the other hip in blend_rotation (fixed, not tuned on the data)
+# Share of the HOG features the rotation forest looks at per split. 0.1 was chosen on the old
+# landmark-aligned crops; on crops aligned by the traced shaft axis 0.2 is better — confirmed on a detector
+# run and CV seeds that took no part in the choice (AUC 0.835 -> 0.852, PR-AUC 0.708 -> 0.732).
+ROTATION_MAX_FEATURES = 0.2
 
 
 def blend_rotation(own, other, alpha):

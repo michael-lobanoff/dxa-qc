@@ -4,12 +4,17 @@ import zipfile
 from pathlib import Path
 
 import pandas as pd
+import pytest
 from fastapi.testclient import TestClient
 
 from dxaqc.api import app
 
 ROOT = Path(__file__).resolve().parents[1]
 SAMPLES = sorted((ROOT / "data/test_sample").glob("*.dcm"))
+
+# The organisers' sample DICOMs are medical data and are not in the repository: put them in
+# data/test_sample to run the tests that need them; everything else runs without.
+needs_samples = pytest.mark.skipif(not SAMPLES, reason="нужны тестовые DICOM организаторов в data/test_sample")
 client = TestClient(app)
 
 
@@ -18,12 +23,14 @@ def test_health():
     assert r.status_code == 200 and r.json()["status"] == "ok" and "kp_hip.pt" in r.json()["models"]
 
 
+@needs_samples
 def test_predict_files_json():
     files = [("files", (p.name, p.read_bytes(), "application/dicom")) for p in SAMPLES]
     rows = client.post("/predict", files=files).json()
     assert len(rows) == 3 and all(r["processing_status"] == "Success" for r in rows)
 
 
+@needs_samples
 def test_predict_zip_csv_and_vis():
     buf = io.BytesIO()
     with zipfile.ZipFile(buf, "w") as z:
@@ -49,6 +56,7 @@ def test_web_interface_is_served_and_offline():
         assert marker not in r.text.replace("http://localhost:8000", ""), marker
 
 
+@needs_samples
 def test_analyse_returns_rows_with_overlay():
     """The endpoint behind the web interface returns a row per image plus a base64 overlay."""
     with open(SAMPLES[0], "rb") as f:
