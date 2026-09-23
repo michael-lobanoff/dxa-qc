@@ -9,6 +9,7 @@ import numpy as np
 import pydicom
 
 from .decision import NAMES_RU, hip_measurements, spine_measurements
+from .markup import describe as describe_markup
 from .artifactnet import ArtifactSegmenter
 from .detector import KeypointDetector
 from .hipcrop import hip_crop, rotation_features
@@ -155,6 +156,9 @@ class QCService:
                     bits.append(f"высота позвонка {m['vert_pitch_mm']:.0f} мм")
                 if m.get("printed_markup"):
                     bits.append("на снимке впечатана разметка аппарата: инородные тела не оцениваются")
+                note = describe_markup(m.get("markup_review"))
+                if note:
+                    bits.append(note)
                 row["details"] = "; ".join(bits)
             else:
                 ru = {"top": "сверху (от большого вертела)", "bottom": "снизу", "lateral": "сбоку"}

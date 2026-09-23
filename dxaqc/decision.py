@@ -11,6 +11,7 @@ from sklearn.metrics import f1_score
 from .artifacts import artifact_features, overlay_mask
 from .features import hip_features, spine_curvature
 from .geometry import MM_PER_PX, axes_mm, spine_rules
+from .markup import read as read_markup, review as review_markup
 from .roi import hip_roi, spine_rois
 from .vertebrae import find as find_vertebrae
 
@@ -52,12 +53,18 @@ def spine_measurements(img, points, conf, mm_per_px=None, seg_area=0.0):
             vert["points"] = [p for p in vert["points"] if p[1] < min(crests) + 1.4 * vert["pitch_px"]]
     r = spine_rules(points, img.shape, mm_per_px, None if vert is None else vert["pitch_px"])
     a = artifact_features(img, points)
+    rois = spine_rois(img, points, vert)
+    # optional (ТЗ 2.6): when the densitometer printed its own L1-L4 boxes on the image, read them and
+    # judge them. Only runs on such images, so it costs nothing on the organisers' scans, which have none.
+    printed = a["n_overlay_lines"] >= 3
+    mk = read_markup(img) if printed else None
     return {"abs_tilt": abs(r["tilt_deg"] or 0.0), "tilt_deg": r["tilt_deg"],
             "curvature": spine_curvature(img, points, mm_per_px=mm_per_px) or 0.0,
             "span_mm": r["span_mm"], "span_vert": r["span_vert"], "top_coverage_ok": r["top_coverage_ok"],
             "vert_pitch_mm": None if vert is None else vert["pitch_px"] * axes_mm(mm_per_px)[1],
             "vert_n": None if vert is None else vert["n"], "vert_points": None if vert is None else vert["points"],
-            "rois": spine_rois(img, points, vert),
+            "rois": rois, "markup": mk,
+            "markup_review": review_markup(img, mk, mm_per_px) if mk else None,
             "crest_conf": min(conf.get("crest_a", 0.0), conf.get("crest_b", 0.0)),
             "area_top": a["area_top"], "n_out": a["n_out"], "max_len": a["max_len"], "seg_area": float(seg_area),
             "printed_markup": a["n_overlay_lines"] >= 3}

@@ -101,6 +101,15 @@ def render_overlay(img, result):
             "—" if meas.get(f"margin_{k}") is None else f"{meas[f'margin_{k}']:.0f}" for k in ("top", "bottom", "lateral")) + " мм"]
         if meas.get("rotation") is not None:
             lines.append(f"оценка ротации {meas['rotation']:.2f}")
+    mk = result.get("measurements", {}).get("markup")               # the densitometer's own printed boxes
+    if mk:
+        for lv in mk["levels"]:
+            cv2.rectangle(rgb, (int(lv[0] * SCALE), int(lv[1] * SCALE)), (int(lv[2] * SCALE), int(lv[3] * SCALE)),
+                          YELLOW, 1, cv2.LINE_AA)
+        _text(rgb, (int(mk["box"][0] * SCALE) + 4, int(mk["box"][1] * SCALE) - 20), "разметка аппарата", YELLOW, size=14)
+        for c in (result["measurements"].get("markup_review") or {}).get("corrections") or []:
+            y = int(c["to"] * SCALE)     # where we propose to move that separator
+            cv2.line(rgb, (int(mk["box"][0] * SCALE), y), (int(mk["box"][2] * SCALE), y), GREEN, 2, cv2.LINE_AA)
     for r in result.get("measurements", {}).get("rois") or []:      # proposed measurement region (ТЗ 2.6)
         x0, y0, x1, y1 = (int(round(v * SCALE)) for v in r["box"])
         cv2.rectangle(rgb, (x0, y0), (x1, y1), CYAN, 1, cv2.LINE_AA)
