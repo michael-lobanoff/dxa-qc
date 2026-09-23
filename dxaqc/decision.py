@@ -8,7 +8,7 @@ import numpy as np
 from sklearn.linear_model import LogisticRegression
 from sklearn.metrics import f1_score
 
-from .artifacts import artifact_features
+from .artifacts import artifact_features, overlay_mask
 from .features import hip_features, spine_curvature
 from .geometry import MM_PER_PX, axes_mm, spine_rules
 from .roi import hip_roi, spine_rois
@@ -66,8 +66,11 @@ def spine_measurements(img, points, conf, mm_per_px=None, seg_area=0.0):
 def hip_measurements(img, points, conf, side, mm_per_px=None):
     f = hip_features(points, img.shape, side, MM_PER_PX if mm_per_px is None else mm_per_px)
     roi = hip_roi(points, img.shape)
+    # the densitometer can print its own ROI boxes onto the export; report it for hips too, not only
+    # for spines (Q&A 17.09: such markup exists on some scans and a specialist corrects it)
     return {"margin_bottom": f["margin_bottom"], "margin_top": f["margin_top"], "margin_lateral": f["margin_lateral"],
             "shaft_angle": f.get("shaft_angle"), "lt_conf": conf.get("lt", 0.0),
+            "printed_markup": overlay_mask(img)[1] >= 3,
             "rois": [roi] if roi else []}
 
 

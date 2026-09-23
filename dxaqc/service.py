@@ -164,6 +164,8 @@ class QCService:
                     bits.append(f"ось бедра {m['shaft_angle']:.0f}° к вертикали")
                 if m.get("implant"):
                     bits.append("эндопротез (укладка оценена как у обычного бедра)")
+                if m.get("printed_markup"):
+                    bits.append("на снимке впечатана разметка аппарата")
                 row["details"] = "; ".join(bits)
             row["processing_status"] = "Success"
             if vis_dir is not None:

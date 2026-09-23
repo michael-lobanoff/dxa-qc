@@ -17,6 +17,31 @@ TOP_FRACTION = 0.30
 
 OVERLAY_MIN_FRAC = 0.4      # a drawn ROI line spans most of the frame; an underwire does not
 OVERLAY_MAX_ANGLE = 4.0     # degrees from horizontal / vertical
+OVERLAY_SIDE_RATIO = 0.55   # a printed line is dark on BOTH sides; a bone cortex has bone on one side
+OVERLAY_SIDE_PX = 5         # how far to look for that dark background
+
+
+def _isolated(g, x1, y1, x2, y2):
+    """True when the segment is dark on both sides — a drawn line, not the edge of a bright structure.
+
+    The lateral cortex of the femoral shaft is also long, straight and bright, and used to be counted
+    as printed markup on 33 hips of the training set. A printed line sits on background: sampling a few
+    pixels to each side of it gives much darker values on BOTH sides.
+    """
+    n = 12
+    xs = np.linspace(x1, x2, n); ys = np.linspace(y1, y2, n)
+    dx, dy = x2 - x1, y2 - y1
+    norm = np.hypot(dx, dy) or 1.0
+    nx, ny = -dy / norm, dx / norm            # unit normal
+    h, w = g.shape
+    on, left, right = [], [], []
+    for x, y in zip(xs, ys):
+        for store, sign in ((left, -1), (right, 1)):
+            sx, sy = int(round(x + sign * OVERLAY_SIDE_PX * nx)), int(round(y + sign * OVERLAY_SIDE_PX * ny))
+            store.append(g[sy, sx] if 0 <= sx < w and 0 <= sy < h else 0.0)
+        on.append(g[int(round(y)), int(round(x))] if 0 <= int(x) < w and 0 <= int(y) < h else 0.0)
+    line = np.median(on) or 1.0
+    return max(np.median(left), np.median(right)) < OVERLAY_SIDE_RATIO * line
 
 
 def overlay_mask(img, kernel=KERNEL, th_rel=TH_REL):
@@ -39,7 +64,7 @@ def overlay_mask(img, kernel=KERNEL, th_rel=TH_REL):
     if segs is not None:
         for x1, y1, x2, y2 in np.asarray(segs).reshape(-1, 4):
             a = abs(np.degrees(np.arctan2(float(y2 - y1), float(x2 - x1)))) % 180
-            if min(a, abs(a - 90), abs(a - 180)) < OVERLAY_MAX_ANGLE:
+            if min(a, abs(a - 90), abs(a - 180)) < OVERLAY_MAX_ANGLE and _isolated(g, x1, y1, x2, y2):
                 cv2.line(out, (int(x1), int(y1)), (int(x2), int(y2)), 1, 3)
                 n += 1
     return out.astype(bool), n

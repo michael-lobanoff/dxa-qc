@@ -214,3 +214,21 @@ def test_overlay_text_is_russian(service, tmp_path):
     out = tmp_path / "overlay.png"
     Image.fromarray(rgb).save(out)
     assert out.stat().st_size > 10_000
+
+
+@needs_samples
+def test_bone_cortex_is_not_printed_markup(service):
+    """The lateral cortex of the femoral shaft is long, straight and bright — but it is bone, not the
+    ROI markup a densitometer prints. A drawn line, on the other hand, must be recognised."""
+    import cv2
+    from dxaqc.artifacts import overlay_mask
+    from dxaqc.service import read_dicom_image
+    hip = next(p for p in SAMPLES if "ПОБ" in p.stem)
+    img, _ = read_dicom_image(hip)
+    assert overlay_mask(img)[1] == 0
+    drawn = img.copy()
+    for x in (int(img.shape[1] * 0.25), int(img.shape[1] * 0.75)):
+        cv2.line(drawn, (x, 5), (x, img.shape[0] - 5), 255, 1)
+    for y in (int(img.shape[0] * 0.3), int(img.shape[0] * 0.7)):
+        cv2.line(drawn, (5, y), (img.shape[1] - 5, y), 255, 1)
+    assert overlay_mask(drawn)[1] >= 3
