@@ -185,3 +185,32 @@ def test_refuses_plain_radiographs(service, tmp_path):
     assert row["violation_codes"] == "unsupported" and row["processing_status"] == "Success"
     # violation_type is a closed vocabulary: the refusal reason goes to details
     assert row["violation_type"] == "" and "не денситометрия" in row["details"]
+
+
+@needs_samples
+def test_screening_policy_flags_at_least_as_much(service):
+    """The screening operating point may only add violations, never drop one the balanced point found."""
+    screening = QCService(ROOT / "models", policy="screening")
+    for p in SAMPLES:
+        base, scr = service.process_file(p), screening.process_file(p)
+        assert base["processing_status"] == scr["processing_status"] == "Success"
+        found = set(filter(None, base["violation_codes"].split(";")))
+        found_s = set(filter(None, scr["violation_codes"].split(";")))
+        assert found <= found_s, (p.name, found, found_s)
+        assert scr["quality_class"] >= base["quality_class"]
+
+
+@needs_samples
+def test_overlay_text_is_russian(service, tmp_path):
+    """The picture a doctor sees must carry the same Russian wording as the table (ТЗ 2.6)."""
+    from PIL import Image
+    from dxaqc.service import read_dicom_image
+    from dxaqc.pixels import pixel_spacing_mm
+    from dxaqc.visualize import render_overlay
+    img, ds = read_dicom_image(SAMPLES[0])
+    mm, _ = pixel_spacing_mm(ds, img.shape)
+    rgb = render_overlay(img, service.analyse(img, mm))
+    assert rgb.shape[0] > img.shape[0] * 3 and rgb.ndim == 3       # header band on top of the 3x image
+    out = tmp_path / "overlay.png"
+    Image.fromarray(rgb).save(out)
+    assert out.stat().st_size > 10_000

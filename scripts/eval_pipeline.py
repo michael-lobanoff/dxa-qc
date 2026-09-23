@@ -68,8 +68,9 @@ def cv_type(X, y, groups, make_model, seed, syn=None):
             m.fit(X[tr], y[tr], syn[0][keep], syn[1][keep], SYNTH_WEIGHT)
         p_tr = m.predict_proba(X[tr])[:, 1]
         prob[va] = m.predict_proba(X[va])[:, 1]
-        dec[va] = prob[va] >= best_threshold(y[tr], p_tr)
-        dec_s[va] = prob[va] >= sensitivity_threshold(y[tr], p_tr, SENS_TARGET)
+        t = best_threshold(y[tr], p_tr)
+        dec[va] = prob[va] >= t
+        dec_s[va] = prob[va] >= min(t, sensitivity_threshold(y[tr], p_tr, SENS_TARGET))
         rank[va] = m.rank_score(X[va])
     return prob, dec, rank, dec_s
 
@@ -164,8 +165,9 @@ def main():
                         prob[va] = blend_with_other_hip(raw_rot, ids, a)[va]
                     fuse[vt] = prob
                     for tr, va in StratifiedGroupKFold(5, shuffle=True, random_state=seed).split(hog_man, yv, groups):
-                        dec[va] = prob[va] >= best_threshold(yv[tr], prob[tr])
-                        dec_s[va] = prob[va] >= sensitivity_threshold(yv[tr], prob[tr], SENS_TARGET)
+                        t = best_threshold(yv[tr], prob[tr])
+                        dec[va] = prob[va] >= t
+                        dec_s[va] = prob[va] >= min(t, sensitivity_threshold(yv[tr], prob[tr], SENS_TARGET))
                 else:
                     feats, signs = cols
                     syn = None

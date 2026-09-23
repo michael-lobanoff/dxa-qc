@@ -15,9 +15,11 @@ def main():
     ap.add_argument("--out", type=Path, default=Path("results.csv"))
     ap.add_argument("--models", type=Path, default=Path("models"))
     ap.add_argument("--vis", type=Path, default=None, help="folder for overlays (PNG + DICOM Secondary Capture); zipped next to --out")
+    ap.add_argument("--policy", choices=["balanced", "screening"], default=None,
+                    help="operating point: balanced (default, F1-optimal per type) or screening (catches ~80 % of each type)")
     args = ap.parse_args()
 
-    df = run_batch(args.input, QCService(args.models), args.vis)
+    df = run_batch(args.input, QCService(args.models, policy=args.policy), args.vis)
     args.out.parent.mkdir(parents=True, exist_ok=True)
     df.to_csv(args.out, index=False, encoding="utf-8-sig")
     df.to_excel(args.out.with_suffix(".xlsx"), index=False)

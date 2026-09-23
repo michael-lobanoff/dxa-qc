@@ -204,8 +204,11 @@ class DecisionModel:
             self.models[vt] = m
             probs[vt] = m.predict_proba(feats[vt])[:, 1]
             self.thresholds[vt] = float(best_threshold(labels[vt], probs[vt]))
-            # second operating point: catch SENS_TARGET of this violation type, as specific as that allows
-            self.thresholds_screening[vt] = float(sensitivity_threshold(labels[vt], probs[vt], SENS_TARGET))
+            # second operating point: catch SENS_TARGET of this violation type, as specific as that allows —
+            # but never stricter than the F1 one, so "screening" can only add findings, never drop them
+            # (for v_axis the F1 threshold is already past that sensitivity).
+            self.thresholds_screening[vt] = min(self.thresholds[vt],
+                                                float(sensitivity_threshold(labels[vt], probs[vt], SENS_TARGET)))
         fuse = {vt: (self.models[vt].rank_score(feats[vt]) if FUSION[region] == "percentile" else probs[vt])
                 for vt in probs}
         raw = 1 - np.prod([1 - fuse[vt] for vt in fuse], axis=0)
