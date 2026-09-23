@@ -41,9 +41,10 @@ def read_dicom_image(path):
 
 class QCService:
     def __init__(self, model_dir="models", device=None, policy=None):
-        """policy: 'screening' (default, sensitivity ~0.80) or 'balanced' (F1-optimal);
-        override per run with DXAQC_POLICY."""
-        self.policy = policy or os.environ.get("DXAQC_POLICY", "screening")
+        """policy: 'balanced' (default, F1-optimal per violation type — what the reported metrics are
+        measured at) or 'screening' (per-type thresholds that catch ~80 % of that violation, fewer misses
+        and more false alarms). Override per run with DXAQC_POLICY."""
+        self.policy = policy or os.environ.get("DXAQC_POLICY", "balanced")
         model_dir = Path(model_dir)
         self.region = RegionClassifier.load(model_dir / "region.pkl")
         self.detector = KeypointDetector(model_dir, device)
@@ -57,7 +58,7 @@ class QCService:
         self.rotation_members = bool(d.get("rotation_members", False))   # average over the ensemble's crops
         self.image_axis = bool(d.get("image_axis", False))   # crop alignment the rotation model was trained on
 
-    def analyse(self, img, mm_per_px=None, rotation_override=None):
+    def analyse(self, img, mm_per_px=None, rotation_override=None, policy=None):
         """mm_per_px: pixel size of this image (see pixels.pixel_spacing_mm); None = the export default.
         rotation_override: rotation probability already blended with the other hip of the study."""
         ok, why, stats = self.region.check(img)
@@ -87,9 +88,9 @@ class QCService:
             meas["rotation_own"] = float(self.rotation.predict_proba(feats)[:, 1].mean())
             meas["rotation"] = meas["rotation_own"] if rotation_override is None else float(rotation_override)
         model = self.decision["spine" if region == "spine" else "hip"]
-        probs, decs, score = model.predict(meas)
-        quality_class, violations = model.verdict(probs, decs, score, self.policy)
-        presumed = False
+        policy = policy or self.policy
+        probs, decs, score = model.predict(meas, policy)
+        quality_class, violations = model.verdict(probs, decs, score, policy)
         # An image with the densitometer's own ROI boxes printed on it cannot be judged for foreign
         # bodies: the printed lines and labels are thin and bright exactly like metal. Say so instead.
         if meas.get("printed_markup") and "v_artifact" in violations:
@@ -102,10 +103,10 @@ class QCService:
             if "v_pos" not in violations:
                 violations.append("v_pos")
         out.update(implant=bool(meas.get("implant", False)), measurements=meas, probs=probs, violations=violations, score=score,
-                   quality_class=quality_class, presumed=presumed)
+                   quality_class=quality_class)
         return out
 
-    def process_file(self, path, study_dir="", vis_dir=None, rotation_override=None):
+    def process_file(self, path, study_dir="", vis_dir=None, rotation_override=None, policy=None):
         """One results row. With vis_dir, also writes <image_uid>.png, a Secondary Capture <image_uid>_qc.dcm
         and a Basic Text SR <image_uid>_sr.dcm with the findings."""
         t0 = time.time()
@@ -127,7 +128,7 @@ class QCService:
                                    f"({mm[0]:.3f}x{mm[1]:.3f} мм из тега {mm_src})")
                 row["time_of_processing"] = round(time.time() - t0, 3)
                 return row
-            r = self.analyse(img, mm, rotation_override)
+            r = self.analyse(img, mm, rotation_override, policy)
             row["mm_per_px"] = f"{mm[0]:.3f}x{mm[1]:.3f}" if mm[0] != mm[1] else round(mm[0], 4)
             row["mm_per_px_source"] = mm_src
             if r.get("unsupported"):
@@ -164,8 +165,6 @@ class QCService:
                 if m.get("implant"):
                     bits.append("эндопротез (укладка оценена как у обычного бедра)")
                 row["details"] = "; ".join(bits)
-            if r.get("presumed"):
-                row["details"] = (row["details"] + "; " if row["details"] else "") + "тип указан как наиболее вероятный"
             row["processing_status"] = "Success"
             if vis_dir is not None:
                 from PIL import Image

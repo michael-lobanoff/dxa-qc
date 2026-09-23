@@ -75,7 +75,7 @@ def contralateral_rotation(rows):
     return out
 
 
-def run_batch(root: Path, service, vis_dir=None) -> pd.DataFrame:
+def run_batch(root: Path, service, vis_dir=None, policy=None) -> pd.DataFrame:
     """All DICOM files under root (folder or .zip) -> one results row per image.
 
     Two passes: every image is analysed on its own, then hips whose study contains the other side are
@@ -92,7 +92,7 @@ def run_batch(root: Path, service, vis_dir=None) -> pd.DataFrame:
             rel = p.relative_to(root)
             study = rel.parts[0] if len(rel.parts) > 1 else ""
             files.append((p, rel, study))
-            rows.append(service.process_file(p, study_dir=study))
+            rows.append(service.process_file(p, study_dir=study, policy=policy))
             rows[-1]["file"] = str(rel)
         alpha = getattr(service, "rotation_blend", 0.0)
         contra = contralateral_rotation(rows) if alpha else {}
@@ -106,7 +106,7 @@ def run_batch(root: Path, service, vis_dir=None) -> pd.DataFrame:
                 override = blend_rotation(rows[k]["_rotation"], contra[k], alpha)
                 if abs(override - rows[k]["_rotation"]) < 1e-9 and not need_vis:
                     continue
-            rows[k] = service.process_file(p, study_dir=study, rotation_override=override,
+            rows[k] = service.process_file(p, study_dir=study, rotation_override=override, policy=policy,
                                            vis_dir=(Path(vis_dir) / study) if need_vis else None)
             rows[k]["file"] = str(rel)
     study_folders(rows)

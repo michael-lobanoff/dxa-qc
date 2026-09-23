@@ -1,5 +1,6 @@
 """Overlay of the QC result on the scan (ТЗ 2.6: additional series with the detected violation)."""
 import datetime
+from pathlib import Path
 
 import cv2
 import numpy as np
@@ -19,17 +20,46 @@ def _pt(p):
     return int(round(p[0] * SCALE)), int(round(p[1] * SCALE))
 
 
+_FONTS = {}
+
+
+def _font(size):
+    """DejaVuSans ships with matplotlib (already a dependency) and has Cyrillic; OpenCV's own fonts do
+    not, which is why the overlay text used to be English. None means "fall back to OpenCV"."""
+    if size not in _FONTS:
+        try:
+            import matplotlib
+            from PIL import ImageFont
+            _FONTS[size] = ImageFont.truetype(str(Path(matplotlib.get_data_path()) / "fonts/ttf/DejaVuSans.ttf"), size)
+        except Exception:
+            _FONTS[size] = None
+    return _FONTS[size]
+
+
+def _text(img, xy, text, color, size=17):
+    """Draw Russian text on an RGB array (PIL), or ASCII through OpenCV if the font is unavailable."""
+    font = _font(size)
+    if font is None:
+        cv2.putText(img, text, (xy[0], xy[1] + size), cv2.FONT_HERSHEY_SIMPLEX, size / 30, color, 1, cv2.LINE_AA)
+        return img
+    from PIL import Image, ImageDraw
+    pil = Image.fromarray(img)
+    ImageDraw.Draw(pil).text(xy, text, font=font, fill=tuple(color))
+    img[:] = np.asarray(pil)
+    return img
+
+
 def _with_header(img, lines, color):
     """Text goes into a black band above the scan so it never covers anatomy."""
-    band = np.zeros((22 * len(lines) + 12, img.shape[1], 3), np.uint8)
+    band = np.zeros((24 * len(lines) + 12, img.shape[1], 3), np.uint8)
     for i, line in enumerate(lines):
-        cv2.putText(band, line, (10, 24 + 22 * i), cv2.FONT_HERSHEY_SIMPLEX, 0.55, color, 1, cv2.LINE_AA)
+        _text(band, (10, 6 + 24 * i), line, color)
     return np.vstack([band, img])
 
 
 def render_overlay(img, result):
-    """RGB uint8 image (3x upscaled) with landmarks, measurements and the verdict. Text is ASCII: OpenCV fonts
-    have no Cyrillic, the Russian wording goes to the report and the DICOM SR/metadata instead."""
+    """RGB uint8 image (3x upscaled) with landmarks, measurements and the verdict, captioned in Russian —
+    the same wording as the report (decision.NAMES_RU), so the picture and the table cannot disagree."""
     h, w = img.shape
     rgb = cv2.cvtColor(cv2.resize(img, (w * SCALE, h * SCALE), interpolation=cv2.INTER_CUBIC), cv2.COLOR_GRAY2RGB)
     p, region = result["points"], result["region"]
@@ -51,8 +81,8 @@ def render_overlay(img, result):
             cv2.drawContours(rgb, cnts, -1, RED if "v_artifact" in result["violations"] else YELLOW, 2)
         m2 = result["measurements"]
         tilt, sv = m2.get("tilt_deg"), m2.get("span_vert")
-        lines = [("SPINE" if tilt is None else f"SPINE  tilt {tilt:+.1f} deg")
-                 + ("" if sv is None else f"  above crests {sv:.1f} vert ({m2['vert_pitch_mm']:.0f} mm each)")]
+        lines = [("Позвоночник" if tilt is None else f"Позвоночник: наклон оси {tilt:+.1f}°")
+                 + ("" if sv is None else f", над гребнями {sv:.1f} позвонка (по {m2['vert_pitch_mm']:.0f} мм)")]
     else:
         meas = result.get("measurements", {})
         for k, v in p.items():
@@ -66,21 +96,19 @@ def render_overlay(img, result):
         if p.get("gt_lat"):
             x, y = _pt(p["gt_lat"]); edge = 0 if region == "hip_right" else w * SCALE - 1
             cv2.arrowedLine(rgb, (x, y), (edge, y), YELLOW, 1, cv2.LINE_AA, tipLength=0.05)
-        side = "LEFT" if region == "hip_left" else "RIGHT"
-        lines = [f"HIP {side}  margins top/bottom/lateral: " + "/".join(
-            "-" if meas.get(f"margin_{k}") is None else f"{meas[f'margin_{k}']:.0f}" for k in ("top", "bottom", "lateral")) + " mm"]
+        side = "левое" if region == "hip_left" else "правое"
+        lines = [f"Бедро {side}: поля от вертелов сверху/снизу/сбоку " + "/".join(
+            "—" if meas.get(f"margin_{k}") is None else f"{meas[f'margin_{k}']:.0f}" for k in ("top", "bottom", "lateral")) + " мм"]
         if meas.get("rotation") is not None:
-            lines.append(f"rotation score {meas['rotation']:.2f}")
+            lines.append(f"оценка ротации {meas['rotation']:.2f}")
     for r in result.get("measurements", {}).get("rois") or []:      # proposed measurement region (ТЗ 2.6)
         x0, y0, x1, y1 = (int(round(v * SCALE)) for v in r["box"])
         cv2.rectangle(rgb, (x0, y0), (x1, y1), CYAN, 1, cv2.LINE_AA)
-        cv2.putText(rgb, r["level"], (x0 + 4, y0 + 16), cv2.FONT_HERSHEY_SIMPLEX, 0.4, CYAN, 1, cv2.LINE_AA)
+        _text(rgb, (x0 + 4, y0 + 2), {"femur": "бедро"}.get(r["level"], r["level"]), CYAN, size=14)
     if result.get("implant"):
-        lines.append("endoprosthesis: positioning judged as for any hip")
-    codes = {"v_axis": "axis tilt", "v_pos": "positioning (iliac crests)", "v_artifact": "foreign body",
-             "v_roi": "field margins", "v_posrot": "positioning/rotation"}
-    lines.append("QUALITY: " + (", ".join(codes[v] for v in result["violations"]) if bad else "OK")
-                 + (f"  (p={result['score']:.2f})" if result.get("score") is not None else ""))
+        lines.append("эндопротез: укладка оценена как у обычного бедра")
+    lines.append(("Вердикт: " + "; ".join(NAMES_RU[v] for v in result["violations"]) if bad else "Вердикт: качественно")
+                 + (f" (вероятность {result['score']:.2f})" if result.get("score") is not None else ""))
     color = RED if bad else GREEN
     return _with_header(rgb, lines, color)
 

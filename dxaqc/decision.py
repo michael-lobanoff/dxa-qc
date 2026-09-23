@@ -153,6 +153,7 @@ class Monotone:
 
 
 ROTATION_BLEND = 0.2   # weight of the other hip in blend_rotation (fixed, not tuned on the data)
+SENS_TARGET = 0.80     # sensitivity per violation type in the "screening" operating point
 # Share of the HOG features the rotation forest looks at per split. 0.1 was chosen on the old
 # landmark-aligned crops; on crops aligned by the traced shaft axis 0.2 is better — confirmed on a detector
 # run and CV seeds that took no part in the choice (AUC 0.835 -> 0.852, PR-AUC 0.708 -> 0.732).
@@ -194,7 +195,7 @@ class DecisionModel:
 
     def fit(self, region, feats, labels, y_img=None, synth=None):
         """synth: {type: (X_syn, y_syn)} synthetic scans for the SYNTH_TYPES, measured like real ones."""
-        self.region, self.models, self.thresholds = region, {}, {}
+        self.region, self.models, self.thresholds, self.thresholds_screening = region, {}, {}, {}
         probs = {}
         synth = synth or {}
         for vt, (cols, signs) in TYPES[region].items():
@@ -203,6 +204,8 @@ class DecisionModel:
             self.models[vt] = m
             probs[vt] = m.predict_proba(feats[vt])[:, 1]
             self.thresholds[vt] = float(best_threshold(labels[vt], probs[vt]))
+            # second operating point: catch SENS_TARGET of this violation type, as specific as that allows
+            self.thresholds_screening[vt] = float(sensitivity_threshold(labels[vt], probs[vt], SENS_TARGET))
         fuse = {vt: (self.models[vt].rank_score(feats[vt]) if FUSION[region] == "percentile" else probs[vt])
                 for vt in probs}
         raw = 1 - np.prod([1 - fuse[vt] for vt in fuse], axis=0)
@@ -223,18 +226,30 @@ class DecisionModel:
                                  "balanced": float(best_threshold(np.asarray(y_img), np.asarray(score)))}
         return self
 
-    def predict(self, meas):
-        """meas: dict of measurements for one image -> (probabilities, decisions, image score)."""
+    def predict(self, meas, policy="balanced"):
+        """meas: measurements of one image -> (probabilities, decisions, image score).
+
+        policy picks the per-type thresholds: "balanced" = F1-optimal (default, what the reported
+        metrics are measured at), "screening" = the most specific threshold that still catches
+        SENS_TARGET of that violation type."""
+        thr = self.thresholds_for(policy)
         probs, decs, fuse = {}, {}, {}
         for vt, (cols, _) in TYPES[self.region].items():
             x = np.array([[np.nan_to_num(float(meas.get(c) if meas.get(c) is not None else np.nan), nan=0.0) for c in cols]])
             probs[vt] = float(self.models[vt].predict_proba(x)[0, 1])
-            decs[vt] = probs[vt] >= self.thresholds[vt]
+            decs[vt] = probs[vt] >= thr[vt]
             fuse[vt] = (float(self.models[vt].rank_score(x)[0])
                         if FUSION[self.region] == "percentile" and hasattr(self.models[vt], "rank_score")
                         else probs[vt])
         raw = 1 - float(np.prod([1 - p for p in fuse.values()]))
         return probs, decs, self.calibrate(raw)
+
+    def thresholds_for(self, policy):
+        """Per-type thresholds of an operating point; falls back to the F1 ones for models pickled
+        before the screening point existed."""
+        if policy == "screening":
+            return getattr(self, "thresholds_screening", None) or self.thresholds
+        return self.thresholds
 
     def calibrate(self, raw):
         """Map the combined score to a probability. One calibration per region, fitted on every
@@ -242,7 +257,7 @@ class DecisionModel:
         cal = getattr(self, "image_cal", None)
         return float(cal.predict_proba([[raw]])[0, 1]) if cal is not None else float(raw)
 
-    def verdict(self, probs, decs, score, policy="screening"):
+    def verdict(self, probs, decs, score, policy="balanced"):
         """(quality_class, violation types) for one image: bad when any violation type fires.
 
         A threshold on the combined score was tried instead and shipped for a while. Once the
@@ -251,6 +266,7 @@ class DecisionModel:
         F1 0.741 against 0.702, per study 0.800 against 0.752, macro-F1 over types 0.611 against
         0.588 — and it needs no "most probable type" hedge: every flagged image names its reason.
         The combined score is still reported as quality_prob, which is what ROC-AUC is computed from.
+        The operating point is chosen when the per-type decisions are made (predict), not here.
         """
         types = [vt for vt, d in decs.items() if d]
         return int(bool(types)), types

@@ -25,6 +25,8 @@
   #drop.over { border-color: var(--accent); background: color-mix(in srgb, var(--accent) 8%, transparent); }
   #drop b { color: var(--accent); }
   .row { display: flex; gap: 14px; align-items: center; flex-wrap: wrap; }
+  select { font: inherit; padding: 6px 8px; border-radius: 8px; border: 1px solid var(--line);
+           background: var(--card); color: var(--ink); margin-left: 6px; }
   button { font: inherit; padding: 9px 16px; border-radius: 8px; border: 1px solid var(--line);
            background: var(--card); color: var(--ink); cursor: pointer; }
   button.primary { background: var(--accent); border-color: var(--accent); color: #fff; }
@@ -68,6 +70,13 @@
     <div class="row" style="margin-top:16px">
       <button id="go" class="primary" disabled>Проверить</button>
       <button id="csv" disabled>Скачать CSV</button>
+      <label class="muted" title="Сбалансированный режим настроен на максимум F1; скрининг реже пропускает брак, но чаще ошибается на хороших снимках">
+        Режим:
+        <select id="policy">
+          <option value="balanced">сбалансированный</option>
+          <option value="screening">скрининг (меньше пропусков)</option>
+        </select>
+      </label>
       <span id="chosen" class="muted"></span>
       <span id="err" class="err"></span>
     </div>
@@ -82,6 +91,16 @@
       <div class="stat"><b id="t-avg">0</b><span>секунд на снимок</span></div>
     </div>
     <div class="card">
+      <div class="row" style="margin-bottom:6px">
+        <label class="muted"><input type="checkbox" id="only-bad"> только с нарушениями</label>
+        <label class="muted">сортировка:
+          <select id="sort">
+            <option value="file">по файлу</option>
+            <option value="prob">по вероятности</option>
+          </select>
+        </label>
+        <span id="shown" class="muted"></span>
+      </div>
       <table>
         <thead><tr>
           <th>Файл</th><th>Область</th><th>Вердикт</th><th>Нарушения</th><th>Измерения</th><th>Вероятность</th>
@@ -111,6 +130,8 @@ function pick(list) {
   $("chosen").textContent = files.length ? `выбрано файлов: ${files.length}` : "";
   $("go").disabled = !files.length;
 }
+$("only-bad").onchange = () => rows.length && draw();
+$("sort").onchange = () => rows.length && draw();
 $("drop").onclick = () => $("file").click();
 $("file").onchange = (e) => pick(e.target.files);
 $("drop").ondragover = (e) => { e.preventDefault(); $("drop").classList.add("over"); };
@@ -124,7 +145,7 @@ $("go").onclick = async () => {
   const fd = new FormData();
   for (const f of files) fd.append("files", f, f.name);
   try {
-    const res = await fetch("analyse", { method: "POST", body: fd });
+    const res = await fetch("analyse?policy=" + $("policy").value, { method: "POST", body: fd });
     if (!res.ok) throw new Error(await res.text());
     render(await res.json());
   } catch (e) {
@@ -137,6 +158,10 @@ $("go").onclick = async () => {
 
 function render(data) {
   rows = data.rows;
+  draw();
+}
+
+function draw() {
   $("results").classList.remove("hidden");
   const bad = rows.filter(r => r.quality_class === 1).length;
   const fail = rows.filter(r => r.processing_status !== "Success").length;
@@ -148,7 +173,11 @@ function render(data) {
   $("t-avg").textContent = t.length ? (t.reduce((a, b) => a + b, 0) / t.length).toFixed(2) : "0";
   const tb = $("rows");
   tb.textContent = "";
-  rows.forEach((r, i) => {
+  let view = rows.map((r, i) => [r, i]);
+  if ($("only-bad").checked) view = view.filter(([r]) => r.quality_class === 1 || r.processing_status !== "Success");
+  if ($("sort").value === "prob") view.sort((a, b) => (b[0].quality_prob ?? -1) - (a[0].quality_prob ?? -1));
+  $("shown").textContent = view.length === rows.length ? "" : `показано ${view.length} из ${rows.length}`;
+  view.forEach(([r, i]) => {
     const tr = document.createElement("tr");
     if (r.overlay) tr.className = "clickable";
     const p = r.quality_prob == null ? null : Math.round(r.quality_prob * 100);

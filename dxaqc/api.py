@@ -3,7 +3,7 @@
 Run:  uvicorn dxaqc.api:app --host 0.0.0.0 --port 8000
   GET  /                            web interface: upload, table of verdicts, overlay per image
   GET  /health                      models loaded, version
-  POST /predict?format=json|csv|xlsx|zip   multipart files: DICOM files or one .zip archive
+  POST /predict?format=json|csv|xlsx|zip&policy=balanced|screening   multipart files: DICOM or one .zip
   POST /analyse                     same input, JSON rows with a base64 overlay for the web interface
   POST /predict_folder              {"input": "/data", "output": "/out/results.csv", "vis": true}
                                     server-side batch over a mounted folder (paths limited to DXAQC_ALLOWED_ROOTS)
@@ -71,7 +71,8 @@ def health():
 
 
 @app.post("/predict")
-async def predict(files: list[UploadFile] = File(...), format: str = Query("json", pattern="^(json|csv|xlsx|zip)$")):
+async def predict(files: list[UploadFile] = File(...), format: str = Query("json", pattern="^(json|csv|xlsx|zip)$"),
+                  policy: str = Query(None, pattern="^(balanced|screening)$")):
     with tempfile.TemporaryDirectory() as tmp:
         root = Path(tmp) / "in"
         root.mkdir()
@@ -81,7 +82,7 @@ async def predict(files: list[UploadFile] = File(...), format: str = Query("json
         items = list(root.iterdir())
         src = items[0] if len(items) == 1 and items[0].suffix.lower() == ".zip" else root
         vis = Path(tmp) / "vis" if format == "zip" else None
-        df = run_batch(src, service(), vis)
+        df = run_batch(src, service(), vis, policy)
         if format == "json":
             return JSONResponse(json.loads(df.to_json(orient="records", force_ascii=False)))
         if format == "csv":
@@ -100,7 +101,7 @@ async def predict(files: list[UploadFile] = File(...), format: str = Query("json
 
 
 @app.post("/analyse")
-async def analyse(files: list[UploadFile] = File(...)):
+async def analyse(files: list[UploadFile] = File(...), policy: str = Query(None, pattern="^(balanced|screening)$")):
     """Rows plus a base64 PNG overlay per image — what the web interface shows."""
     with tempfile.TemporaryDirectory() as tmp:
         root = Path(tmp) / "in"
@@ -114,7 +115,7 @@ async def analyse(files: list[UploadFile] = File(...)):
         items = list(root.iterdir())
         src = items[0] if len(items) == 1 and items[0].suffix.lower() == ".zip" else root
         vis = Path(tmp) / "vis"
-        df = run_batch(src, service(), vis)
+        df = run_batch(src, service(), vis, policy)
         rows = json.loads(df.to_json(orient="records", force_ascii=False))
         for r in rows:                       # show the names the user uploaded, not our temp copies
             stem = Path(str(r.get("file", ""))).name

@@ -18,7 +18,8 @@ from sklearn.model_selection import StratifiedGroupKFold
 from sklearn.pipeline import make_pipeline
 from sklearn.preprocessing import StandardScaler
 
-from dxaqc.decision import FUSION, ROTATION_BLEND, ROTATION_MAX_FEATURES, SYNTH_TYPES, SYNTH_WEIGHT, TYPES, Monotone, sensitivity_threshold, spine_measurements
+from dxaqc.decision import (FUSION, ROTATION_BLEND, ROTATION_MAX_FEATURES, SENS_TARGET, SYNTH_TYPES, SYNTH_WEIGHT,
+                            TYPES, Monotone, sensitivity_threshold, spine_measurements)
 from dxaqc.features import hip_features
 from dxaqc.hipcrop import hip_crop, rotation_features
 
@@ -57,6 +58,7 @@ def cv_type(X, y, groups, make_model, seed, syn=None):
     """Out-of-fold probability, decision (threshold from the training folds) and fusion score.
     syn: (X_syn, y_syn, study of the source scan) — only variants of training-fold scans are used."""
     prob, dec, rank = np.zeros(len(y)), np.zeros(len(y), bool), np.zeros(len(y))
+    dec_s = np.zeros(len(y), bool)   # the "screening" operating point (decision.SENS_TARGET per type)
     for tr, va in StratifiedGroupKFold(5, shuffle=True, random_state=seed).split(X, y, groups):
         m = make_model()
         if syn is None:
@@ -64,10 +66,12 @@ def cv_type(X, y, groups, make_model, seed, syn=None):
         else:
             keep = np.isin(syn[2], groups[tr])
             m.fit(X[tr], y[tr], syn[0][keep], syn[1][keep], SYNTH_WEIGHT)
-        t = best_threshold(y[tr], m.predict_proba(X[tr])[:, 1])
-        prob[va] = m.predict_proba(X[va])[:, 1]; dec[va] = prob[va] >= t
+        p_tr = m.predict_proba(X[tr])[:, 1]
+        prob[va] = m.predict_proba(X[va])[:, 1]
+        dec[va] = prob[va] >= best_threshold(y[tr], p_tr)
+        dec_s[va] = prob[va] >= sensitivity_threshold(y[tr], p_tr, SENS_TARGET)
         rank[va] = m.rank_score(X[va])
-    return prob, dec, rank
+    return prob, dec, rank, dec_s
 
 
 def metrics(y, score, dec):
@@ -139,11 +143,11 @@ def main():
         y_img = idx.loc[ids, "y"].astype(int).to_numpy()
         runs = []
         for seed in SEEDS:
-            probs, decs, fuse = {}, {}, {}
+            probs, decs, decs_s, fuse = {}, {}, {}, {}
             for vt, cols in types[region].items():
                 yv = idx.loc[ids, vt].astype(int).to_numpy()
                 if cols == "rotation":
-                    prob, dec = np.zeros(len(yv)), np.zeros(len(yv), bool)
+                    prob, dec, dec_s = np.zeros(len(yv)), np.zeros(len(yv), bool), np.zeros(len(yv), bool)
                     for tr, va in StratifiedGroupKFold(5, shuffle=True, random_state=seed).split(hog_man, yv, groups):
                         rf = ExtraTreesClassifier(800, min_samples_leaf=3, max_features=ROTATION_MAX_FEATURES,
                                                   class_weight="balanced_subsample", random_state=0, n_jobs=4)
@@ -161,6 +165,7 @@ def main():
                     fuse[vt] = prob
                     for tr, va in StratifiedGroupKFold(5, shuffle=True, random_state=seed).split(hog_man, yv, groups):
                         dec[va] = prob[va] >= best_threshold(yv[tr], prob[tr])
+                        dec_s[va] = prob[va] >= sensitivity_threshold(yv[tr], prob[tr], SENS_TARGET)
                 else:
                     feats, signs = cols
                     syn = None
@@ -168,9 +173,9 @@ def main():
                         sy = syn_all[syn_all.src.isin(ids)]
                         syn = (np.nan_to_num(sy[feats].to_numpy(float), nan=0.0), sy.label.to_numpy(int),
                                sy.src.str[:3].astype(int).to_numpy())
-                    prob, dec, rank = cv_type(F[feats].to_numpy(float), yv, groups, lambda: Monotone(signs, lr_weights=True),
-                                              seed, syn)
-                probs[vt], decs[vt] = prob, dec
+                    prob, dec, rank, dec_s = cv_type(F[feats].to_numpy(float), yv, groups,
+                                                     lambda: Monotone(signs, lr_weights=True), seed, syn)
+                probs[vt], decs[vt], decs_s[vt] = prob, dec, dec_s
                 fuse[vt] = rank if FUSION[region] == "percentile" else prob
             # combined score for quality_prob: percentiles for the spine types, probabilities for hips,
             # then ONE calibration per region (fitted on the training folds) so that the two regions end
@@ -182,7 +187,7 @@ def main():
                 if cal.coef_[0, 0] <= 0:
                     cal.coef_[0, 0] = 1e-3
                 score[va] = cal.predict_proba(raw[va, None])[:, 1]
-            runs.append((probs, decs, score, raw, np.any(np.stack(list(decs.values())), 0)))
+            runs.append((probs, decs, score, raw, np.any(np.stack(list(decs.values())), 0), decs_s))
         # aggregate over seeds: mean metrics; pooled (seed-averaged) scores for CIs
         for vt in types[region]:
             yv = idx.loc[ids, vt].astype(int).to_numpy()
@@ -198,6 +203,7 @@ def main():
             per_image[vt] = idx.loc[ids, vt].astype(int).to_numpy()
             per_image[f"p_{vt}"] = np.mean([r[0][vt] for r in runs], 0)
             per_image[f"d_{vt}"] = (np.mean([r[1][vt] for r in runs], 0) >= 0.5).astype(int)
+            per_image[f"s_{vt}"] = (np.mean([r[5][vt] for r in runs], 0) >= 0.5).astype(int)
         oof_rows.append(per_image)
         region_scores[region] = (y_img, score)
 
@@ -236,10 +242,23 @@ def main():
     macro = float(np.mean([report["types"][k]["f1"] for k in report["types"]]))
     report["macro_f1_types"] = round(macro, 3)
 
+    # The second operating point the service offers (DXAQC_POLICY=screening): per-type thresholds that
+    # catch SENS_TARGET of each violation instead of maximising its F1. Same models, same folds.
+    scr = allrows[[f"s_{vt}" for vt in TYPES["spine"] | TYPES["hip"] if f"s_{vt}" in allrows]].fillna(0).sum(axis=1).to_numpy() > 0
+    report["screening"] = {"image": {k: round(float(v), 3) for k, v in metrics(y_all, s_all, scr).items()}}
+    st_s = allrows.assign(study=allrows.id.str[:3].astype(int), dec=scr.astype(int)).groupby("study").agg(
+        y=("y", "max"), dec=("dec", "max"), score=("score", "max"))
+    report["screening"]["studies"] = {k: round(float(v), 3)
+                                      for k, v in metrics(st_s.y.to_numpy(int), st_s.score.to_numpy(float),
+                                                          st_s.dec.to_numpy(bool)).items()}
+    report["screening"]["macro_f1_types"] = round(float(np.mean([
+        f1_score(allrows.loc[allrows[vt].notna(), vt].astype(int), allrows.loc[allrows[vt].notna(), f"s_{vt}"])
+        for vt in TYPES["spine"] | TYPES["hip"] if f"s_{vt}" in allrows])), 3)
+
     print("Per violation type (mean over 10 CV repeats):")
     for k, v in report["types"].items():
         print(f"  {k:18s} AUC {v['auc']:.3f}  F1 {v['f1']:.3f}  sens {v['sens']:.2f}  spec {v['spec']:.2f}  (positives {v['n_pos']})")
-    print("\nImage verdict (quality_class, shipped policy 'screening'), mean over repeats [95% bootstrap CI]:")
+    print("\nImage verdict (quality_class, shipped policy 'balanced'), mean over repeats [95% bootstrap CI]:")
     for r, v in report["regions"].items():
         print(f"  {r:8s} n={v['n'][0]} ({v['n'][1]} bad)  AUC {v['auc'][0]:.3f} {v['auc'][1]}  F1 {v['f1'][0]:.3f} {v['f1'][1]}  "
               f"PR-AUC {v['pr_auc'][0]:.3f}  sens {v['sens'][0]:.2f}  spec {v['spec'][0]:.2f}  bAcc {v['bacc'][0]:.3f}")
@@ -247,6 +266,11 @@ def main():
     print(f"\nStudy verdict (ТЗ 8.4: «чувствительность выявления исследований»): n={v['n'][0]} ({v['n'][1]} bad)  "
           f"AUC {v['auc'][0]:.3f} {v['auc'][1]}  F1 {v['f1'][0]:.3f} {v['f1'][1]}  sens {v['sens'][0]:.2f}  spec {v['spec'][0]:.2f}")
     print(f"macro-F1 over violation types: {report['macro_f1_types']:.3f}")
+    sc = report["screening"]
+    print(f"\nAlternative operating point DXAQC_POLICY=screening (per-type sensitivity target {SENS_TARGET:.2f}):")
+    print(f"  images  F1 {sc['image']['f1']:.3f}  sens {sc['image']['sens']:.2f}  spec {sc['image']['spec']:.2f}  bAcc {sc['image']['bacc']:.3f}")
+    print(f"  studies F1 {sc['studies']['f1']:.3f}  sens {sc['studies']['sens']:.2f}  spec {sc['studies']['spec']:.2f}  "
+          f"| macro-F1 {sc['macro_f1_types']:.3f}")
     Path(f"data/train/pipeline_eval{out_sfx}.json").write_text(json.dumps(report, ensure_ascii=False, indent=1))
     pd.concat(oof_rows).to_csv(f"data/train/pipeline_oof{out_sfx}.csv", index=False)
 
