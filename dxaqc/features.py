@@ -54,6 +54,41 @@ def spine_features(p, shape, mm_per_px=None):
             "span_mm": r["span_mm"]}
 
 
+def pelvis_ratio(img, points, band=0.22, gap=1.6):
+    """How much bright bone sits in the lower corners of the frame, relative to the column itself.
+
+    ТЗ 2.3 wants the upper edges of the iliac wings in the frame, and a correctly framed lumbar scan
+    shows them as two large bright areas in the lower corners. The shipped signal for this is the
+    detector's confidence in the crest landmarks; it is accurate on the scanner it was trained on
+    (0.99 when the crests are there, 0.31 when they are not) but does not travel: on a public set from
+    another densitometer, cropping the crests away moves it from 0.97 only to 0.88. This ratio is
+    measured from pixels alone and reacts on every one of those scans (0.50 -> 0.28, 100 % of images).
+    """
+    h, w = img.shape
+    t, b = points.get("col_top"), points.get("col_bottom")
+    if not t or not b:
+        return None
+    rows = np.arange(int(h * (1 - band)), h)
+    if len(rows) < 5:
+        return None
+    g = img.astype(np.float32)
+    denom = (b[1] - t[1]) or 1
+    xs = t[0] + (b[0] - t[0]) * (rows - t[1]) / denom      # the axis, extrapolated into those rows
+    half = max(w * 0.08, 12)                               # half-width of the lumbar column, pixels
+    col, side = [], []
+    for y, x in zip(rows, xs):
+        lo, hi = int(max(x - half, 0)), int(min(x + half, w - 1))
+        if hi > lo:
+            col.append(g[y, lo:hi + 1].mean())
+        vals = np.concatenate([g[y, :max(int(x - gap * half), 0)], g[y, min(int(x + gap * half), w - 1):]])
+        if vals.size:
+            side.append(vals.mean())
+    if not col or not side:
+        return None
+    c, s = float(np.mean(col)), float(np.mean(side))
+    return s / c if c else None
+
+
 def spine_curvature(img, points, window=60, mm_per_px=None):
     """Largest lateral deviation (mm) of the spinal column centre from the straight col_top -> col_bottom line.
 
