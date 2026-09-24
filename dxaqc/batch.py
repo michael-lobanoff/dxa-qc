@@ -6,8 +6,12 @@ from pathlib import Path
 
 import pandas as pd
 
-COLUMNS = ["path_to_study", "study_uid", "image_uid", "anatomical_region", "quality_class", "violation_type",
-           "processing_status", "time_of_processing", "quality_prob", "violation_codes", "details", "mm_per_px", "mm_per_px_source", "file", "error"]
+# ТЗ 2.5 asks for the first eight columns; the rest is ours and helps whoever checks the result.
+# "projection" answers ТЗ 2.2 ("область и проекция"), "markup_suggestion" carries the proposed
+# correction of the printed markup that the specialist confirms in the web interface (ТЗ 2.6).
+COLUMNS = ["path_to_study", "study_uid", "image_uid", "anatomical_region", "projection", "quality_class",
+           "violation_type", "processing_status", "time_of_processing", "quality_prob", "violation_codes",
+           "details", "markup_suggestion", "mm_per_px", "mm_per_px_source", "file", "error"]
 
 
 def _zip_name(info):

@@ -232,3 +232,19 @@ def test_bone_cortex_is_not_printed_markup(service):
     for y in (int(img.shape[0] * 0.3), int(img.shape[0] * 0.7)):
         cv2.line(drawn, (5, y), (img.shape[1] - 5, y), 255, 1)
     assert overlay_mask(drawn)[1] >= 3
+
+
+@needs_samples
+def test_report_columns_match_the_spec(service, tmp_path):
+    """ТЗ 2.5 fixes the report columns; ours adds a few of its own. The batch layer filters the row to a
+    fixed list, so a field added in the service silently disappears from the file unless it is listed
+    there too — that is exactly how `projection` went missing once."""
+    from dxaqc.batch import COLUMNS, run_batch
+    required = ["path_to_study", "study_uid", "image_uid", "anatomical_region", "quality_class",
+                "violation_type", "processing_status", "time_of_processing"]
+    df = run_batch(SAMPLES[0].parent, service, None)
+    assert [c for c in required if c not in df.columns] == []
+    # every field the service fills must survive into the table
+    row = service.process_file(SAMPLES[0])
+    assert [k for k in row if not k.startswith("_") and k not in COLUMNS] == []
+    assert set(df.projection) <= {"переднезадняя (AP)", ""}

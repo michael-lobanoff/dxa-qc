@@ -184,6 +184,7 @@ CSV (UTF-8 с BOM) и XLSX, одна строка на изображение. �
 | path_to_study | папка исследования во входных данных |
 | study_uid, image_uid | StudyInstanceUID, SOPInstanceUID |
 | anatomical_region | «Поясничный отдел позвоночника» или «Проксимальный отдел бедра» |
+| projection | «переднезадняя (AP)» — проекция исследования (ТЗ 2.2); пусто, если снимок не оценивался |
 | quality_class | 0 — качественное, 1 — есть нарушение |
 | violation_type | нарушения из закрытого списка через «; », пусто если нарушений нет |
 | processing_status | Success / Failure |
@@ -191,6 +192,7 @@ CSV (UTF-8 с BOM) и XLSX, одна строка на изображение. �
 | quality_prob | вероятность нарушения в [0; 1] (для ROC-AUC) |
 | violation_codes | коды нарушений (v_axis, v_pos, v_artifact, v_roi, v_posrot) или unsupported |
 | details | измерения: наклон оси, охват в позвонках, поля кадра в мм; пометки (эндопротез, впечатанная разметка аппарата) |
+| markup_suggestion | предложенная коррекция впечатанной разметки аппарата; подтверждается специалистом в веб-интерфейсе |
 | mm_per_px, mm_per_px_source | размер пикселя и откуда он взят (`ExposedArea` / `default`) |
 | error | текст ошибки для Failure |
 
