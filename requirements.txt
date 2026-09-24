@@ -32,6 +32,13 @@ pillow==12.3.0
 pydantic==2.13.5
 pydantic_core==2.46.5
 pydicom==3.0.2
+# Декодеры сжатых DICOM. В выгрузке организаторов пиксели несжатые, но в PACS обычный синтаксис —
+# JPEG Lossless (Process 14 SV1) или JPEG-LS, и без этих пакетов pydicom такой файл не прочитает:
+# сервис вернул бы строку Failure на каждый снимок. Проверено: с ними доступны все семь синтаксисов
+# (JPEG baseline/extended/lossless, JPEG-LS, JPEG 2000, RLE).
+pylibjpeg==2.1.0
+pylibjpeg-libjpeg==2.4.0
+pyjpegls==1.5.1
 Pygments==2.21.0
 pyparsing==3.3.2
 python-dateutil==2.9.0.post0

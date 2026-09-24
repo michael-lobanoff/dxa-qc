@@ -248,3 +248,27 @@ def test_report_columns_match_the_spec(service, tmp_path):
     row = service.process_file(SAMPLES[0])
     assert [k for k in row if not k.startswith("_") and k not in COLUMNS] == []
     assert set(df.projection) <= {"переднезадняя (AP)", ""}
+
+
+@needs_samples
+def test_reads_compressed_dicom(service, tmp_path):
+    """The organisers' export is uncompressed, but a PACS usually hands out JPEG Lossless or JPEG-LS.
+    Without a decoder pydicom raises and every such file would become a Failure row, so the decoders
+    are pinned in requirements and this test states which transfer syntaxes must stay readable."""
+    from pydicom import uid
+    from pydicom.pixels import get_decoder
+    for u in (uid.JPEGBaseline8Bit, uid.JPEGLossless, uid.JPEGLosslessSV1, uid.JPEGLSLossless,
+              uid.JPEG2000Lossless, uid.RLELossless):
+        assert get_decoder(u).is_available, f"нет декодера для {u.name}"
+
+    # a real round trip: RLE Lossless is the one pydicom can also write
+    import numpy as np
+    import pydicom
+    ds = pydicom.dcmread(SAMPLES[0], force=True)
+    before, _ = read_dicom_image(SAMPLES[0])
+    ds.compress(uid.RLELossless)
+    out = tmp_path / "rle.dcm"
+    ds.save_as(out, enforce_file_format=True)
+    after, _ = read_dicom_image(out)
+    assert after.shape == before.shape
+    assert np.abs(after.astype(int) - before.astype(int)).max() == 0
