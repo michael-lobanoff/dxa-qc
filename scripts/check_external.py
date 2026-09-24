@@ -18,8 +18,11 @@ from dxaqc.service import QCService
 
 
 def load(path):
-    img = Image.open(path).convert("L")
-    return np.asarray(img)
+    """PNG/JPEG through PIL, DICOM through the same reader the service uses."""
+    if path.suffix.lower() == ".dcm":
+        from dxaqc.service import read_dicom_image
+        return read_dicom_image(path)[0]
+    return np.asarray(Image.open(path).convert("L"))
 
 
 def main():
@@ -30,7 +33,11 @@ def main():
     args = ap.parse_args()
 
     svc = QCService(args.models)
-    files = sorted(p for p in args.folder.iterdir() if p.suffix.lower() in (".png", ".jpg", ".jpeg"))
+    # rglob: external sets come as nested folders; "._name" are macOS resource forks, not images
+    files = sorted(p for p in args.folder.rglob("*")
+                   if p.suffix.lower() in (".png", ".jpg", ".jpeg", ".dcm") and not p.name.startswith("._"))
+    if not files:
+        raise SystemExit(f"в {args.folder} нет изображений (.png/.jpg/.dcm) — проверьте путь")
     rows, shapes = [], Counter()
     for p in files:
         img = load(p)
