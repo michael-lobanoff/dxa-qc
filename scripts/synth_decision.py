@@ -138,7 +138,7 @@ class MonotoneSynth(Monotone):
         return self
 
 
-def evaluate(tag, syn, weights, seeds=range(300, 310)):
+def evaluate(tag, syn, weights, seeds=range(300, 310), only=None):
     idx = pd.read_csv("data/train/image_index.csv")
     idx["id"] = idx.n.map("{:03d}".format) + "_" + idx.region
     idx = idx.set_index("id")
@@ -146,6 +146,8 @@ def evaluate(tag, syn, weights, seeds=range(300, 310)):
     report = {}
     for region, vts in TYPES.items():
       for vt in vts:
+          if only and vt not in only:
+              continue
           oof = json.loads(Path(f"data/train/kp_oof_{region}_{tag}.json").read_text())
           ids = [i for i in sorted(oof) if not kp[i]["flags"].get("skip") and not pd.isna(idx.loc[i, "y"])]
           real = []
@@ -162,8 +164,9 @@ def evaluate(tag, syn, weights, seeds=range(300, 310)):
           S = syn[syn.src.isin(ids) & (syn.type == vt)]
           Xs_all = np.nan_to_num(S[FEATS[vt]].to_numpy(dtype=float), nan=0.0)
           ys_all, gs_all = S.label.to_numpy(int), S.src.str[:3].astype(int).to_numpy()
-          for cols in (EVAL_COLS[vt],):
-              signs = [1, -1] if vt == "v_axis" else [-1] * len(cols)
+          # v_pos ships with one feature: measure it in the same run, on the same folds, as the baseline
+          for cols in ([[0]] if vt == "v_pos" else []) + [EVAL_COLS[vt]]:
+              signs = [SIGNS[vt][c] for c in cols]
               for w in weights:
                   ms = []
                   for seed in seeds:
@@ -194,6 +197,7 @@ def main():
     ap.add_argument("--kinds", nargs="+", default=None, help="generate only these kinds (see KINDS)")
     ap.add_argument("--suffix", default="", help="suffix of the measurements file, when generating a subset")
     ap.add_argument("--no-eval", action="store_true")
+    ap.add_argument("--types", nargs="+", default=None, help="evaluate only these violation types")
     args = ap.parse_args()
     torch.set_num_threads(2)
     name = args.name or "_".join(args.tags)
@@ -212,7 +216,10 @@ def main():
                     ignore_index=True)
     syn["type"] = syn["type"] if "type" in syn else syn.kind.map(KIND_TYPE)
     syn["type"] = syn["type"].fillna(syn.kind.map(KIND_TYPE))
-    report = evaluate(name, syn, weights=[0.0, 0.05, 0.1, 0.2])
+    # the same variants may sit in several measurement files (a type was generated separately);
+    # duplicated rows would silently double the synthetic weight
+    syn = syn.drop_duplicates(subset=[c for c in syn.columns if c != "label"] + ["label"])
+    report = evaluate(name, syn, weights=[0.0, 0.05, 0.1, 0.2], only=args.types)
     Path(f"data/train/synth_eval_{name}.json").write_text(json.dumps(report, indent=1, ensure_ascii=False))
 
 
