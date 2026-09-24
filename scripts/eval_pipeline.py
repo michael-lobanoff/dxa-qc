@@ -18,8 +18,10 @@ from sklearn.model_selection import StratifiedGroupKFold
 from sklearn.pipeline import make_pipeline
 from sklearn.preprocessing import StandardScaler
 
+# best_threshold comes from the shipped module on purpose: the evaluation must choose thresholds
+# exactly the way fit_decision does, including DXAQC_THRESH_RULE
 from dxaqc.decision import (FUSION, ROTATION_BLEND, ROTATION_MAX_FEATURES, SENS_TARGET, SYNTH_TYPES, SYNTH_WEIGHT,
-                            TYPES, Monotone, sensitivity_threshold, spine_measurements)
+                            TYPES, Monotone, best_threshold, sensitivity_threshold, spine_measurements)
 from dxaqc.features import hip_features
 from dxaqc.hipcrop import hip_crop, rotation_features
 
@@ -36,11 +38,6 @@ BLEND_GRID = np.arange(0, 0.55, 0.05)
 
 def lr():
     return make_pipeline(StandardScaler(), LogisticRegression(C=1.0, class_weight="balanced", max_iter=2000))
-
-
-def best_threshold(y, p):
-    grid = np.unique(np.quantile(p, np.linspace(0.02, 0.98, 49)))
-    return max(grid, key=lambda t: f1_score(y, p >= t, zero_division=0))
 
 
 def blend_with_other_hip(prob, ids, alpha):

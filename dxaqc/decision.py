@@ -4,6 +4,8 @@ Every violation type has a small monotone model over 1-3 interpretable measureme
 rotation classifier for hips), a Platt calibration and an F1-optimal threshold. The image is
 "bad" if any type fires; its score is the noisy-OR of the per-type probabilities.
 """
+import os
+
 import numpy as np
 from sklearn.linear_model import LogisticRegression
 from sklearn.metrics import f1_score
@@ -81,7 +83,17 @@ def hip_measurements(img, points, conf, side, mm_per_px=None):
             "rois": [roi] if roi else []}
 
 
-def best_threshold(y, p):
+# How the threshold of a violation type is chosen. "f1" takes the F1 optimum on the training part;
+# "prev" flags as many scans as the training prevalence. With 6-36 positives per type the F1 optimum
+# sits wherever a couple of positives happen to land and generalises badly (see docs/night_report.md).
+THRESHOLD_RULE = os.environ.get("DXAQC_THRESH_RULE", "f1")
+
+
+def best_threshold(y, p, rule=None):
+    y, p = np.asarray(y), np.asarray(p, dtype=float)
+    if (rule or THRESHOLD_RULE) == "prev":
+        rate = float(np.mean(y))
+        return float(np.quantile(p, 1 - rate)) if 0 < rate < 1 else float(p.max() + 1)
     grid = np.unique(np.quantile(p, np.linspace(0.02, 0.98, 49)))
     return max(grid, key=lambda t: f1_score(y, p >= t, zero_division=0))
 
