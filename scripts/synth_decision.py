@@ -39,12 +39,12 @@ KIND_TYPE = {"tilt": "v_axis", "tilt_ok": "v_axis", "cut_bottom": "v_pos", "cut_
              "cut_top_ok": "v_pos", "margin_bottom": "v_roi", "margin_top": "v_roi", "margin_lateral": "v_roi"}
 # margin_lateral is generated for completeness, but as a third v_roi feature it only hurt (AUC 0.857 -> 0.80
 # with synthetic lateral cuts): only 3 of 143 normal hips are below the 2 cm rule, so the experts do not use it.
-FEATS = {"v_axis": ["abs_tilt", "curvature"], "v_roi": ["margin_bottom", "margin_top", "margin_lateral"],
+FEATS = {"v_axis": ["abs_tilt", "tilt_pelvis", "curvature"], "v_roi": ["margin_bottom", "margin_top", "margin_lateral"],
          # v_pos ships with one feature (the net's confidence in the iliac crests). A second feature was
          # tried before and did not help on 6 positives; synthetic cuts are what makes it fittable.
          "v_pos": ["crest_conf", "span_vert"]}
-EVAL_COLS = {"v_axis": [0, 1], "v_roi": [0, 1], "v_pos": [0, 1]}
-SIGNS = {"v_axis": [1, -1], "v_roi": [-1, -1, -1], "v_pos": [-1, -1]}
+EVAL_COLS = {"v_axis": [0, 1, 2], "v_roi": [0, 1], "v_pos": [0, 1]}
+SIGNS = {"v_axis": [1, -1, -1], "v_roi": [-1, -1, -1], "v_pos": [-1, -1]}
 
 
 def spacing(idx, i):

@@ -54,6 +54,26 @@ def spine_features(p, shape, mm_per_px=None):
             "span_mm": r["span_mm"]}
 
 
+def pelvis_relative_tilt(points, mm_per_px=None):
+    """Angle between the column axis and the perpendicular to the line joining the iliac crests, degrees.
+
+    The tilt of ТЗ 2.3 is measured against the vertical of the frame, i.e. the axis of the table. This
+    measures something different on purpose: how much the spine leans **relative to the pelvis**. When the
+    whole patient lies askew, spine and pelvis lean together and this stays small; when the spine alone
+    curves away from the pelvis, it grows. The expert flags the first and not the second, so on its own
+    this separates his labels backwards (AUC 0.46) — which is exactly why it is useful next to the plain
+    tilt: it tells a crooked lay from a crooked spine.
+    """
+    sx, sy = G.axes_mm(mm_per_px)
+    a, b = points.get("crest_a"), points.get("crest_b")
+    t, bo = points.get("col_top"), points.get("col_bottom")
+    if not a or not b or not t or not bo or abs(b[0] - a[0]) < 1 or abs(bo[1] - t[1]) < 1:
+        return None
+    pelvis = math.degrees(math.atan2((b[1] - a[1]) * sy, (b[0] - a[0]) * sx))
+    column = math.degrees(math.atan2((bo[0] - t[0]) * sx, (bo[1] - t[1]) * sy))
+    return abs(column + pelvis)
+
+
 def pelvis_ratio(img, points, band=0.22, gap=1.6):
     """How much bright bone sits in the lower corners of the frame, relative to the column itself.
 

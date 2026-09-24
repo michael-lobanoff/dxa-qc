@@ -94,6 +94,15 @@ def rows(tag):
             band = img[max(int(y) - 2, 0):int(y) + 3, max(int(x) - 25, 0):int(x) + 26]
             w = int(np.clip(band.mean() / 40, 1, 4)) if band.size else 1
             wpts += [(x, y)] * w
+        # угол оси столба относительно таза: перпендикуляр к линии между гребнями вместо вертикали кадра
+        ca, cb = oof[i]["points"].get("crest_a"), oof[i]["points"].get("crest_b")
+        tilt_pelvis = np.nan
+        if ca and cb and abs(cb[0] - ca[0]) > 1:
+            pel = np.degrees(np.arctan2((cb[1] - ca[1]) * sy, (cb[0] - ca[0]) * sx))
+            t, b = oof[i]["points"].get("col_top"), oof[i]["points"].get("col_bottom")
+            if t and b and abs(b[1] - t[1]) > 1:
+                col = np.degrees(np.arctan2((b[0] - t[0]) * sx, (b[1] - t[1]) * sy))
+                tilt_pelvis = abs(col + pel)      # ось относительно перпендикуляра к линии гребней
         cc = column_centres(img, oof[i]["points"])
         angc = theil_sen_angle(cc, sx, sy) if len(cc) >= 20 else None
         # scoliosis bends the column; a tilted but straight lay does not. The shipped feature measures
@@ -107,6 +116,7 @@ def rows(tag):
             quad = abs(a) * (ys.max() - ys.min()) ** 2 / 4       # sagitta in mm: comparable to curvature
         out.append({"id": i, "y": int(idx.loc[i, "y"]), "v_axis": int(idx.loc[i, "v_axis"]),
                     "tiltc": abs(angc) if angc is not None else np.nan, "quad": quad,
+                    "tilt_pelvis": tilt_pelvis,
                     "tilt2": m["abs_tilt"], "curvature": m["curvature"], "n_vert": len(vp),
                     "tiltv": abs(ang) if ang is not None else np.nan,
                     "tiltw": abs(theil_sen_angle(wpts, sx, sy) or np.nan)})
@@ -145,6 +155,9 @@ def main():
         (["tiltv", "curvature"], [1, -1]),
         (["tiltw", "curvature"], [1, -1]),
         (["tilt2", "tiltv", "curvature"], [1, 1, -1]),
+        (["tilt_pelvis"], [-1]),
+        (["tilt2", "tilt_pelvis"], [1, -1]),
+        (["tilt2", "tilt_pelvis", "curvature"], [1, -1, -1]),
         (["tilt2", "quad"], [1, -1]),
         (["tilt2", "curvature", "quad"], [1, -1, -1]),
         (["tiltc", "curvature"], [1, -1]),

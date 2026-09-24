@@ -11,7 +11,7 @@ from sklearn.linear_model import LogisticRegression
 from sklearn.metrics import f1_score
 
 from .artifacts import artifact_features, overlay_mask
-from .features import hip_features, pelvis_ratio, spine_curvature
+from .features import hip_features, pelvis_ratio, pelvis_relative_tilt, spine_curvature
 from .geometry import MM_PER_PX, axes_mm, spine_rules
 from .markup import read as read_markup, review as review_markup
 from .roi import hip_roi, spine_rois
@@ -24,7 +24,7 @@ from .vertebrae import find as find_vertebrae
 FUSION = {"spine": "percentile", "hip": "probability"}
 
 TYPES = {
-    "spine": {"v_axis": (["abs_tilt", "curvature"], [1, -1]), "v_pos": (["crest_conf", "pelvis"], [-1, -1]),
+    "spine": {"v_axis": (["abs_tilt", "tilt_pelvis", "curvature"], [1, -1, -1]), "v_pos": (["crest_conf", "pelvis"], [-1, -1]),
               # artifacts: the hand-crafted top-hat area plus the segmentation net. Two weaker
               # hand features (n_out, max_len) were dropped — they cost more than they added; the net
               # is a genuinely different opinion and does add (0.898 -> 0.911 on matched folds).
@@ -43,6 +43,10 @@ SYNTH_WEIGHT = 0.1
 NAMES_RU = {"v_axis": "Не выравнена ось позвоночника", "v_pos": "Некорректная укладка",
             "v_artifact": "Присутствуют посторонние предметы", "v_roi": "Некорректная область интереса",
             "v_posrot": "Некорректная укладка"}
+
+
+def _or(value, fallback):
+    return fallback if value is None else value
 
 
 def spine_measurements(img, points, conf, mm_per_px=None, seg_area=0.0):
@@ -68,7 +72,11 @@ def spine_measurements(img, points, conf, mm_per_px=None, seg_area=0.0):
             "rois": rois, "markup": mk,
             "markup_review": review_markup(img, mk, mm_per_px) if mk else None,
             "crest_conf": min(conf.get("crest_a", 0.0), conf.get("crest_b", 0.0)),
-            "pelvis": pelvis_ratio(img, points),
+            "pelvis": _or(pelvis_ratio(img, points), 0.0),
+            # when the crests are out of frame there is no pelvis to compare against; assume it lies
+            # straight, which makes the relative tilt equal the plain one (a missing value would read as
+            # "spine perfectly aligned with the pelvis" and nudge the model the wrong way)
+            "tilt_pelvis": _or(pelvis_relative_tilt(points, mm_per_px), abs(r["tilt_deg"] or 0.0)),
             "area_top": a["area_top"], "n_out": a["n_out"], "max_len": a["max_len"], "seg_area": float(seg_area),
             "printed_markup": a["n_overlay_lines"] >= 3}
 
