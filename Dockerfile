@@ -10,11 +10,14 @@ WORKDIR /app
 
 RUN apt-get update && apt-get install -y --no-install-recommends libglib2.0-0 && rm -rf /var/lib/apt/lists/*
 
-# CPU build of torch: the service needs 0.13 s per image on a CPU, while the default Linux wheel pulls
-# the whole CUDA stack (~2.5 GB — that is what made the first build time out). For a GPU host swap the
-# index below for https://download.pytorch.org/whl/cu124.
+# CPU build of torch by default: the service needs 0.43 s per image on a CPU (limit is 3 minutes per
+# study), while the CUDA wheel pulls ~2.5 GB — that is what made the first build time out. The final
+# testing host has GPUs (ТЗ 3.1: 2xH200), so the index is a build argument:
+#   docker build --build-arg TORCH_INDEX=https://download.pytorch.org/whl/cu124 -t dxa-qc .
+# Nothing else changes: the service picks CUDA -> MPS -> CPU by itself (DXAQC_DEVICE overrides).
+ARG TORCH_INDEX=https://download.pytorch.org/whl/cpu
 COPY requirements.txt pyproject.toml ./
-RUN pip install --index-url https://download.pytorch.org/whl/cpu torch==2.14.0 \
+RUN pip install --index-url ${TORCH_INDEX} torch==2.14.0 \
     && grep -v '^torch==' requirements.txt > /tmp/req.txt \
     && pip install -r /tmp/req.txt
 

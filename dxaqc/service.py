@@ -9,7 +9,7 @@ import numpy as np
 import pydicom
 
 from .decision import NAMES_RU, hip_measurements, spine_measurements
-from .markup import describe as describe_markup
+from .markup import describe as describe_markup, describe_corrections
 from .artifactnet import ArtifactSegmenter
 from .detector import KeypointDetector
 from .hipcrop import hip_crop, rotation_features
@@ -20,6 +20,11 @@ from .region import RegionClassifier
 # internally, because the lateral margin of the hip depends on which side it is).
 REGION_RU = {"spine": "Поясничный отдел позвоночника", "hip_left": "Проксимальный отдел бедра",
              "hip_right": "Проксимальный отдел бедра"}
+# ТЗ 2.2 requires the projection alongside the region. Both regions of ТЗ 2.1 are acquired in one
+# projection — anteroposterior — and the criteria of ТЗ 2.3 (iliac crests, lesser trochanter, field
+# margins) are written for it. A lateral acquisition is outside the trained distribution and is expected
+# to be turned down by the "свой/чужой" check; we have no lateral DXA to prove that, and say so in README.
+PROJECTION_RU = "переднезадняя (AP)"
 IMPLANT_METAL_FRACTION = 0.015  # saturated share: implants 0.018-0.12 on the training set, normal hips < 0.012
 
 
@@ -111,9 +116,10 @@ class QCService:
         """One results row. With vis_dir, also writes <image_uid>.png, a Secondary Capture <image_uid>_qc.dcm
         and a Basic Text SR <image_uid>_sr.dcm with the findings."""
         t0 = time.time()
-        row = {"path_to_study": study_dir, "file": str(path), "study_uid": "", "image_uid": "", "anatomical_region": "",
+        row = {"path_to_study": study_dir, "file": str(path), "study_uid": "", "image_uid": "", "anatomical_region": "", "projection": "",
                "quality_class": None, "quality_prob": None, "violation_type": "", "violation_codes": "",
                "processing_status": "Failure", "time_of_processing": None, "details": "", "error": "",
+               "markup_suggestion": "",
                "mm_per_px": None, "mm_per_px_source": ""}
         try:
             img, ds = read_dicom_image(path)
@@ -140,6 +146,7 @@ class QCService:
                 row["time_of_processing"] = round(time.time() - t0, 3)
                 return row
             row["anatomical_region"] = REGION_RU[r["region"]]
+            row["projection"] = PROJECTION_RU
             row["_region"] = r["region"]
             row["_rotation"] = r.get("measurements", {}).get("rotation_own")
             row.update(quality_class=r["quality_class"], quality_prob=round(r["score"], 4),
@@ -159,6 +166,8 @@ class QCService:
                 note = describe_markup(m.get("markup_review"))
                 if note:
                     bits.append(note)
+                # ТЗ 2.6: the correction is a proposal, the specialist confirms it (web interface)
+                row["markup_suggestion"] = describe_corrections(m.get("markup_review")) or ""
                 row["details"] = "; ".join(bits)
             else:
                 ru = {"top": "сверху (от большого вертела)", "bottom": "снизу", "lateral": "сбоку"}

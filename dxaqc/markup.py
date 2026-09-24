@@ -211,6 +211,16 @@ def review(img, markup, mm_per_px=None):
             "corrections": corrections(img, markup, mm_per_px)}
 
 
+def describe_corrections(review_dict):
+    """Just the proposed move, for the operator to accept or reject (ТЗ 2.6); None when nothing to fix."""
+    fix = (review_dict or {}).get("corrections") or []
+    if not fix:
+        return None
+    return "предлагаем сдвинуть " + ", ".join(
+        f"разделитель №{c['index']} на {abs(c['shift_mm']):.0f} мм {'вниз' if c['shift_mm'] > 0 else 'вверх'}"
+        for c in fix)
+
+
 def describe(review_dict):
     """One Russian line for the report; None when there is no markup on the image."""
     if not review_dict:
@@ -218,11 +228,9 @@ def describe(review_dict):
     bits = [f"разметка аппарата: {review_dict['levels']} уровня"]
     if not review_dict["in_frame"]:
         bits.append("обрезана краем кадра")
-    fix = review_dict.get("corrections") or []
+    fix = describe_corrections(review_dict)
     if fix:
-        bits.append("предлагаем сдвинуть " + ", ".join(
-            f"разделитель №{c['index']} на {abs(c['shift_mm']):.0f} мм {'вниз' if c['shift_mm'] > 0 else 'вверх'}"
-            for c in fix))
+        bits.append(fix)
     elif review_dict.get("max_error_mm") is not None:
         bits.append(f"разделители лежат в межпозвонковых промежутках (максимум {review_dict['max_error_mm']:.0f} мм)")
     return "; ".join(bits)

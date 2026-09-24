@@ -57,6 +57,9 @@
   .legend { display: flex; gap: 16px; flex-wrap: wrap; margin-top: 8px; font-size: 12px; color: var(--muted); }
   .legend i { display: inline-block; width: 10px; height: 10px; border-radius: 2px; margin-right: 5px; vertical-align: baseline; }
   .hint { color: var(--accent); }
+  .fix { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; margin-bottom: 8px;
+         padding: 8px 10px; border: 1px solid var(--line); border-radius: 8px; }
+  .fix button { padding: 4px 10px; font-size: 13px; }
   .err { color: var(--bad); }
   .hidden { display: none; }
   .foot { margin-top: 26px; color: var(--muted); font-size: 13px; }
@@ -136,6 +139,12 @@
   </div>
   <img id="dlg-img" alt="Визуализация нарушения">
   <div class="foot2">
+    <div id="dlg-fix" class="fix hidden">
+      <span id="dlg-fix-text"></span>
+      <button id="fix-yes">Принять</button>
+      <button id="fix-no">Отклонить</button>
+      <span id="dlg-fix-state" class="muted"></span>
+    </div>
     <div id="dlg-details" class="muted"></div>
     <div class="legend">
       <span><i style="background:#4cc2ff"></i>точки и предложенные зоны измерения</span>
@@ -149,6 +158,9 @@
 <script>
 const $ = (id) => document.getElementById(id);
 let files = [], rows = [], view = [], gallery = [], at = 0, used = "";
+// ТЗ 2.6: коррекция разметки предлагается, а применяет её специалист. Его решение по каждому
+// снимку хранится здесь и уезжает в выгрузку отдельной колонкой.
+const fixes = new Map();
 
 function pick(list) {
   files = Array.from(list);
@@ -249,10 +261,24 @@ function open_at(k) {
   $("dlg-title").textContent = `${r.file} — ${r.violation_type || "нарушений не найдено"}`;
   $("dlg-img").src = "data:image/png;base64," + r.overlay;
   $("dlg-details").innerHTML = details(r);
+  const sug = r.markup_suggestion || "";
+  $("dlg-fix").classList.toggle("hidden", !sug);
+  if (sug) {
+    $("dlg-fix-text").textContent = sug.charAt(0).toUpperCase() + sug.slice(1) + ".";
+    $("dlg-fix-state").textContent = { yes: "принято", no: "отклонено" }[fixes.get(r.file)] || "";
+  }
   $("dlg-pos").textContent = `${at + 1} / ${gallery.length}`;
   if (!$("dlg").open) $("dlg").showModal();
 }
 
+function decide(v) {
+  const r = gallery[at];
+  if (!r) return;
+  fixes.set(r.file, v);
+  $("dlg-fix-state").textContent = v === "yes" ? "принято" : "отклонено";
+}
+$("fix-yes").onclick = () => decide("yes");
+$("fix-no").onclick = () => decide("no");
 $("dlg-prev").onclick = () => open_at(at - 1);
 $("dlg-next").onclick = () => open_at(at + 1);
 $("dlg").addEventListener("keydown", (e) => {

@@ -31,12 +31,20 @@ from dxaqc import kpmodel as K  # noqa: E402
 from dxaqc import synth  # noqa: E402
 from dxaqc.decision import Monotone, hip_measurements, spine_measurements  # noqa: E402
 
-KINDS = {"spine": ["tilt", "tilt_ok"], "hip": ["margin_bottom", "margin_top", "margin_lateral"]}
-TYPE = {"spine": "v_axis", "hip": "v_roi"}
+KINDS = {"spine": ["tilt", "tilt_ok", "cut_bottom", "cut_top", "cut_top_ok"],
+         "hip": ["margin_bottom", "margin_top", "margin_lateral"]}
+TYPES = {"spine": ["v_axis", "v_pos"], "hip": ["v_roi"]}
+# which violation every generated kind is a positive (or a hard negative) for
+KIND_TYPE = {"tilt": "v_axis", "tilt_ok": "v_axis", "cut_bottom": "v_pos", "cut_top": "v_pos",
+             "cut_top_ok": "v_pos", "margin_bottom": "v_roi", "margin_top": "v_roi", "margin_lateral": "v_roi"}
 # margin_lateral is generated for completeness, but as a third v_roi feature it only hurt (AUC 0.857 -> 0.80
 # with synthetic lateral cuts): only 3 of 143 normal hips are below the 2 cm rule, so the experts do not use it.
-FEATS = {"v_axis": ["abs_tilt", "curvature"], "v_roi": ["margin_bottom", "margin_top", "margin_lateral"]}
-EVAL_COLS = {"v_axis": [0, 1], "v_roi": [0, 1]}
+FEATS = {"v_axis": ["abs_tilt", "curvature"], "v_roi": ["margin_bottom", "margin_top", "margin_lateral"],
+         # v_pos ships with one feature (the net's confidence in the iliac crests). A second feature was
+         # tried before and did not help on 6 positives; synthetic cuts are what makes it fittable.
+         "v_pos": ["crest_conf", "span_vert"]}
+EVAL_COLS = {"v_axis": [0, 1], "v_roi": [0, 1], "v_pos": [0, 1]}
+SIGNS = {"v_axis": [1, -1], "v_roi": [-1, -1, -1], "v_pos": [-1, -1]}
 
 
 def spacing(idx, i):
@@ -67,7 +75,7 @@ def measure(img, pts_conf, region, side, mm):
     return hip_measurements(img, points, conf, side, mm)
 
 
-def generate(tags, per_kind, seed=0, regions=("spine", "hip")):
+def generate(tags, per_kind, seed=0, regions=("spine", "hip"), kinds=None):
     idx = pd.read_csv("data/train/image_index.csv")
     idx["id"] = idx.n.map("{:03d}".format) + "_" + idx.region
     idx = idx.set_index("id")
@@ -79,21 +87,23 @@ def generate(tags, per_kind, seed=0, regions=("spine", "hip")):
         for i, net in sorted(models.items()):
             img = np.asarray(Image.open(f"data/annotation/images/{i}.png"))
             side = i[4:]
-            for kind in KINDS[region]:
+            for kind in (kinds or KINDS[region]):
+                if kind not in KINDS[region]:
+                    continue
                 for rep in range(per_kind):
                     try:
+                        vt = KIND_TYPE[kind]
                         if region == "spine":
                             simg, skp, lab = synth.spine_sample(img, kp[i]["points"], kind, rng)
-                            label = bool(lab["v_axis"])
                         else:
                             simg, skp, lab = synth.hip_sample(img, kp[i]["points"], side, kind, rng, spacing(idx, i)[0])
-                            label = bool(lab["v_roi"])
+                        label = bool(lab[vt])
                     except ValueError:   # e.g. the margin is already below the limit
                         continue
                     (pc,) = K.predict(net, [simg], region, "cpu", flips=[side == "hip_left"])   # net: list = ensemble
                     m = measure(simg, pc, region, side, spacing(idx, i))
-                    rows.append({"src": i, "kind": kind, "label": int(label),
-                                 **{c: m.get(c) for c in FEATS[TYPE[region]]}})
+                    rows.append({"src": i, "kind": kind, "type": vt, "label": int(label),
+                                 **{c: m.get(c) for c in FEATS[vt]}})
         print(f"{region}: {len(rows)} synthetic scans so far", flush=True)
     return pd.DataFrame(rows)
 
@@ -134,42 +144,42 @@ def evaluate(tag, syn, weights, seeds=range(300, 310)):
     idx = idx.set_index("id")
     kp = json.loads(Path("data/train/keypoints.json").read_text())
     report = {}
-    for region in ("spine", "hip"):
-        vt = TYPE[region]
-        oof = json.loads(Path(f"data/train/kp_oof_{region}_{tag}.json").read_text())
-        ids = [i for i in sorted(oof) if not kp[i]["flags"].get("skip") and not pd.isna(idx.loc[i, "y"])]
-        real = []
-        for i in ids:
-            img = np.asarray(Image.open(f"data/annotation/images/{i}.png"))
-            names = K.POINTS[region]
-            pc = (np.array([oof[i]["points"][k] or [np.nan, np.nan] for k in names], float),
-                  np.array([oof[i]["conf"][k] for k in names], float))
-            m = measure(img, pc, region, i[4:], spacing(idx, i))
-            real.append([m.get(c) for c in FEATS[vt]])
-        X = np.nan_to_num(np.array(real, dtype=float), nan=0.0)
-        y = idx.loc[ids, vt].astype(int).to_numpy()
-        groups = np.array([int(i[:3]) for i in ids])
-        S = syn[syn.src.isin(ids)]
-        Xs_all = np.nan_to_num(S[FEATS[vt]].to_numpy(dtype=float), nan=0.0)
-        ys_all, gs_all = S.label.to_numpy(int), S.src.str[:3].astype(int).to_numpy()
-        for cols in (EVAL_COLS[vt],):
-            signs = [1, -1] if vt == "v_axis" else [-1] * len(cols)
-            for w in weights:
-                ms = []
-                for seed in seeds:
-                    prob, dec = np.zeros(len(y)), np.zeros(len(y), bool)
-                    for tr, va in StratifiedGroupKFold(5, shuffle=True, random_state=seed).split(X, y, groups):
-                        keep = np.isin(gs_all, groups[tr])        # synthetic variants of training scans only
-                        m = MonotoneSynth(signs, Xs_all[keep][:, cols], ys_all[keep], w).fit(X[tr][:, cols], y[tr])
-                        t = best_threshold(y[tr], m.predict_proba(X[tr][:, cols])[:, 1])
-                        prob[va] = m.predict_proba(X[va][:, cols])[:, 1]
-                        dec[va] = prob[va] >= t
-                    ms.append(metrics(y, prob, dec))
-                key = f"{vt} [{'+'.join(FEATS[vt][c] for c in cols)}] w={w}"
-                report[key] = {k: round(float(np.mean([x[k] for x in ms])), 3) for k in ("auc", "pr_auc", "f1", "sens", "spec")}
-                r = report[key]
-                print(f"  {key:62s} AUC {r['auc']:.3f}  PR-AUC {r['pr_auc']:.3f}  F1 {r['f1']:.3f}  "
-                      f"sens {r['sens']:.2f}  spec {r['spec']:.2f}", flush=True)
+    for region, vts in TYPES.items():
+      for vt in vts:
+          oof = json.loads(Path(f"data/train/kp_oof_{region}_{tag}.json").read_text())
+          ids = [i for i in sorted(oof) if not kp[i]["flags"].get("skip") and not pd.isna(idx.loc[i, "y"])]
+          real = []
+          for i in ids:
+              img = np.asarray(Image.open(f"data/annotation/images/{i}.png"))
+              names = K.POINTS[region]
+              pc = (np.array([oof[i]["points"][k] or [np.nan, np.nan] for k in names], float),
+                    np.array([oof[i]["conf"][k] for k in names], float))
+              m = measure(img, pc, region, i[4:], spacing(idx, i))
+              real.append([m.get(c) for c in FEATS[vt]])
+          X = np.nan_to_num(np.array(real, dtype=float), nan=0.0)
+          y = idx.loc[ids, vt].astype(int).to_numpy()
+          groups = np.array([int(i[:3]) for i in ids])
+          S = syn[syn.src.isin(ids) & (syn.type == vt)]
+          Xs_all = np.nan_to_num(S[FEATS[vt]].to_numpy(dtype=float), nan=0.0)
+          ys_all, gs_all = S.label.to_numpy(int), S.src.str[:3].astype(int).to_numpy()
+          for cols in (EVAL_COLS[vt],):
+              signs = [1, -1] if vt == "v_axis" else [-1] * len(cols)
+              for w in weights:
+                  ms = []
+                  for seed in seeds:
+                      prob, dec = np.zeros(len(y)), np.zeros(len(y), bool)
+                      for tr, va in StratifiedGroupKFold(5, shuffle=True, random_state=seed).split(X, y, groups):
+                          keep = np.isin(gs_all, groups[tr])        # synthetic variants of training scans only
+                          m = MonotoneSynth(signs, Xs_all[keep][:, cols], ys_all[keep], w).fit(X[tr][:, cols], y[tr])
+                          t = best_threshold(y[tr], m.predict_proba(X[tr][:, cols])[:, 1])
+                          prob[va] = m.predict_proba(X[va][:, cols])[:, 1]
+                          dec[va] = prob[va] >= t
+                      ms.append(metrics(y, prob, dec))
+                  key = f"{vt} [{'+'.join(FEATS[vt][c] for c in cols)}] w={w}"
+                  report[key] = {k: round(float(np.mean([x[k] for x in ms])), 3) for k in ("auc", "pr_auc", "f1", "sens", "spec")}
+                  r = report[key]
+                  print(f"  {key:62s} AUC {r['auc']:.3f}  PR-AUC {r['pr_auc']:.3f}  F1 {r['f1']:.3f}  "
+                        f"sens {r['sens']:.2f}  spec {r['spec']:.2f}", flush=True)
     return report
 
 
@@ -181,20 +191,27 @@ def main():
     ap.add_argument("--per-kind", type=int, default=2)
     ap.add_argument("--regions", nargs="+", default=["spine", "hip"],
                     help="generate only these; the file gets the region suffix and is merged by hand")
+    ap.add_argument("--kinds", nargs="+", default=None, help="generate only these kinds (see KINDS)")
+    ap.add_argument("--suffix", default="", help="suffix of the measurements file, when generating a subset")
     ap.add_argument("--no-eval", action="store_true")
     args = ap.parse_args()
     torch.set_num_threads(2)
     name = args.name or "_".join(args.tags)
     part = "" if len(args.regions) == 2 else "_" + args.regions[0]
-    path = Path(f"data/train/synth_meas_{name}{part}.csv")
+    path = Path(f"data/train/synth_meas_{name}{part}{args.suffix}.csv")
     if path.exists():
         syn = pd.read_csv(path)
     else:
-        syn = generate(args.tags, args.per_kind, regions=args.regions)
+        syn = generate(args.tags, args.per_kind, regions=args.regions, kinds=args.kinds)
         syn.to_csv(path, index=False)
     print(syn.groupby(["kind", "label"]).size().to_string())
     if args.no_eval or part:
         return
+    # every measurements file of this detector: the kinds of a new violation type are generated separately
+    syn = pd.concat([pd.read_csv(f) for f in sorted(Path("data/train").glob(f"synth_meas_{name}*.csv"))],
+                    ignore_index=True)
+    syn["type"] = syn["type"] if "type" in syn else syn.kind.map(KIND_TYPE)
+    syn["type"] = syn["type"].fillna(syn.kind.map(KIND_TYPE))
     report = evaluate(name, syn, weights=[0.0, 0.05, 0.1, 0.2])
     Path(f"data/train/synth_eval_{name}.json").write_text(json.dumps(report, indent=1, ensure_ascii=False))
 
