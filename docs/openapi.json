@@ -1,0 +1,284 @@
+{
+ "openapi": "3.1.0",
+ "info": {
+  "title": "DXA QC",
+  "description": "Контроль качества денситометрических исследований",
+  "version": "0.1.0"
+ },
+ "paths": {
+  "/health": {
+   "get": {
+    "summary": "Health",
+    "operationId": "health_health_get",
+    "responses": {
+     "200": {
+      "description": "Successful Response",
+      "content": {
+       "application/json": {
+        "schema": {}
+       }
+      }
+     }
+    }
+   }
+  },
+  "/predict": {
+   "post": {
+    "summary": "Predict",
+    "operationId": "predict_predict_post",
+    "parameters": [
+     {
+      "name": "format",
+      "in": "query",
+      "required": false,
+      "schema": {
+       "type": "string",
+       "pattern": "^(json|csv|xlsx|zip)$",
+       "default": "json",
+       "title": "Format"
+      }
+     },
+     {
+      "name": "policy",
+      "in": "query",
+      "required": false,
+      "schema": {
+       "type": "string",
+       "pattern": "^(balanced|screening)$",
+       "title": "Policy"
+      }
+     }
+    ],
+    "requestBody": {
+     "required": true,
+     "content": {
+      "multipart/form-data": {
+       "schema": {
+        "$ref": "#/components/schemas/Body_predict_predict_post"
+       }
+      }
+     }
+    },
+    "responses": {
+     "200": {
+      "description": "Successful Response",
+      "content": {
+       "application/json": {
+        "schema": {}
+       }
+      }
+     },
+     "422": {
+      "description": "Validation Error",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/HTTPValidationError"
+        }
+       }
+      }
+     }
+    }
+   }
+  },
+  "/analyse": {
+   "post": {
+    "summary": "Analyse",
+    "description": "Rows plus a base64 PNG overlay per image — what the web interface shows.",
+    "operationId": "analyse_analyse_post",
+    "parameters": [
+     {
+      "name": "policy",
+      "in": "query",
+      "required": false,
+      "schema": {
+       "type": "string",
+       "pattern": "^(balanced|screening)$",
+       "title": "Policy"
+      }
+     }
+    ],
+    "requestBody": {
+     "required": true,
+     "content": {
+      "multipart/form-data": {
+       "schema": {
+        "$ref": "#/components/schemas/Body_analyse_analyse_post"
+       }
+      }
+     }
+    },
+    "responses": {
+     "200": {
+      "description": "Successful Response",
+      "content": {
+       "application/json": {
+        "schema": {}
+       }
+      }
+     },
+     "422": {
+      "description": "Validation Error",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/HTTPValidationError"
+        }
+       }
+      }
+     }
+    }
+   }
+  },
+  "/predict_folder": {
+   "post": {
+    "summary": "Predict Folder",
+    "operationId": "predict_folder_predict_folder_post",
+    "requestBody": {
+     "content": {
+      "application/json": {
+       "schema": {
+        "$ref": "#/components/schemas/FolderJob"
+       }
+      }
+     },
+     "required": true
+    },
+    "responses": {
+     "200": {
+      "description": "Successful Response",
+      "content": {
+       "application/json": {
+        "schema": {}
+       }
+      }
+     },
+     "422": {
+      "description": "Validation Error",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/HTTPValidationError"
+        }
+       }
+      }
+     }
+    }
+   }
+  }
+ },
+ "components": {
+  "schemas": {
+   "Body_analyse_analyse_post": {
+    "properties": {
+     "files": {
+      "items": {
+       "type": "string",
+       "contentMediaType": "application/octet-stream"
+      },
+      "type": "array",
+      "title": "Files"
+     }
+    },
+    "type": "object",
+    "required": [
+     "files"
+    ],
+    "title": "Body_analyse_analyse_post"
+   },
+   "Body_predict_predict_post": {
+    "properties": {
+     "files": {
+      "items": {
+       "type": "string",
+       "contentMediaType": "application/octet-stream"
+      },
+      "type": "array",
+      "title": "Files"
+     }
+    },
+    "type": "object",
+    "required": [
+     "files"
+    ],
+    "title": "Body_predict_predict_post"
+   },
+   "FolderJob": {
+    "properties": {
+     "input": {
+      "type": "string",
+      "title": "Input"
+     },
+     "output": {
+      "type": "string",
+      "title": "Output",
+      "default": "/out/results.csv"
+     },
+     "vis": {
+      "type": "boolean",
+      "title": "Vis",
+      "default": false
+     }
+    },
+    "type": "object",
+    "required": [
+     "input"
+    ],
+    "title": "FolderJob"
+   },
+   "HTTPValidationError": {
+    "properties": {
+     "detail": {
+      "items": {
+       "$ref": "#/components/schemas/ValidationError"
+      },
+      "type": "array",
+      "title": "Detail"
+     }
+    },
+    "type": "object",
+    "title": "HTTPValidationError"
+   },
+   "ValidationError": {
+    "properties": {
+     "loc": {
+      "items": {
+       "anyOf": [
+        {
+         "type": "string"
+        },
+        {
+         "type": "integer"
+        }
+       ]
+      },
+      "type": "array",
+      "title": "Location"
+     },
+     "msg": {
+      "type": "string",
+      "title": "Message"
+     },
+     "type": {
+      "type": "string",
+      "title": "Error Type"
+     },
+     "input": {
+      "title": "Input"
+     },
+     "ctx": {
+      "type": "object",
+      "title": "Context"
+     }
+    },
+    "type": "object",
+    "required": [
+     "loc",
+     "msg",
+     "type"
+    ],
+    "title": "ValidationError"
+   }
+  }
+ }
+}

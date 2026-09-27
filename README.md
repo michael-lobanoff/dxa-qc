@@ -69,13 +69,17 @@ AUC при одинаковой ошибке точек), а ансамбль и
 
 | Документ | О чём |
 |---|---|
+| [docs/architecture.md](docs/architecture.md) | архитектура: какие модели, как обучены, как дообучить на новых данных |
+| [docs/demo.md](docs/demo.md) | демонстрационный сценарий: что запустить и что показать |
 | [docs/user_guide.md](docs/user_guide.md) | руководство пользователя: запуск, чтение отчёта и картинок, что означает каждое нарушение |
 | [docs/deployment.md](docs/deployment.md) | развёртывание: сборка образа, переменные окружения, безопасность, типовые проблемы |
 | [docs/training.md](docs/training.md) | обучение и дообучение моделей на новых данных |
 | [docs/presentation.md](docs/presentation.md) | текст слайдов и сценарий демонстрации |
 | [docs/data_requests.md](docs/data_requests.md) | поиск внешних данных: что нашли, письма для запроса |
 | [docs/night_report.md](docs/night_report.md) | отчёт по экспериментам: что пробовали, что сработало, что нет |
+| [docs/tz_checklist.md](docs/tz_checklist.md) | постраничная сверка с техническим заданием |
 | [docs/annotation_scheme.md](docs/annotation_scheme.md) | схема разметки ключевых точек |
+| [docs/openapi.json](docs/openapi.json) | спецификация API — можно смотреть, не запуская сервис |
 
 ## Структура
 
