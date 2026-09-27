@@ -79,6 +79,123 @@ def architecture():
     save(fig, "architecture")
 
 
+# ------------------------------------------------------------------------------- ML-архитектура
+def ml_architecture():
+    """Внутреннее устройство обучаемых компонентов: сеть точек, лес ротации, решающий слой."""
+    fig, ax = plt.subplots(figsize=(15, 8.8))
+    ax.set_xlim(0, 1); ax.set_ylim(0, 1); ax.axis("off")
+    ax.text(0.5, 0.985, "ML-архитектура: пять обучаемых моделей", ha="center", fontsize=15,
+            fontweight="bold", color=INK)
+    ax.text(0.5, 0.957, "чужие предобученные веса не используются — всё обучено на данных организаторов",
+            ha="center", fontsize=9.5, color="#5A6270", style="italic")
+
+    # ---------- 1. область
+    box(ax, 0.01, 0.745, 0.24, 0.135, "", color=GREY, fill="#F5F6F7")
+    ax.text(0.13, 0.852, "1 · Область и «свой/чужой»", ha="center", fontsize=9.8, fontweight="bold", color=INK)
+    ax.text(0.13, 0.795, "снимок → 128×128 → HOG\n(ячейка 16, 9 ориентаций)\n"
+                         "→ логистическая регрессия → 3 класса\n"
+                         "+ новизна, размер пикселя, размер кадра",
+            ha="center", va="center", fontsize=8.2, color="#5A6270", linespacing=1.5)
+
+    # ---------- 2. U-Net
+    ax.text(0.63, 0.893, "2 · Сеть ключевых точек — U-Net, 4.86 млн параметров", ha="center",
+            fontsize=10.5, fontweight="bold", color=INK)
+    box(ax, 0.265, 0.738, 0.075, 0.10, "вход\n1 × 256 × 256\n+ 2 канала\nкоординат", color=BLUE,
+        fill="#EAF0FB", fontsize=8.0)
+
+    top = 0.838
+    enc = [("256²", 32), ("128²", 64), ("64²", 128), ("32²", 256), ("16²", 256)]
+    dec = [("32²", 256), ("64²", 128), ("128²", 64)]
+    ex, dx, w, gap = 0.362, 0.688, 0.048, 0.058
+    for k, (size, ch) in enumerate(enc):
+        h = 0.145 * (1 - k * 0.145)
+        x = ex + k * gap
+        ax.add_patch(FancyBboxPatch((x, top - h), w, h, boxstyle="round,pad=0.004,rounding_size=0.012",
+                                    linewidth=1.3, edgecolor=BLUE, facecolor="#EAF0FB"))
+        ax.text(x + w / 2, top - h / 2 + 0.012, str(ch), ha="center", va="center", fontsize=9.5,
+                color=INK, fontweight="bold")
+        ax.text(x + w / 2, top - h / 2 - 0.015, size, ha="center", va="center", fontsize=7.6, color="#5A6270")
+        if k:
+            arrow(ax, x - 0.010, top - h / 2, x, top - h / 2)
+    for k, (size, ch) in enumerate(dec):
+        h = 0.145 * (0.565 + k * 0.145)
+        x = dx + k * gap
+        ax.add_patch(FancyBboxPatch((x, top - h), w, h, boxstyle="round,pad=0.004,rounding_size=0.012",
+                                    linewidth=1.3, edgecolor=GREEN, facecolor="#EFF8F2"))
+        ax.text(x + w / 2, top - h / 2 + 0.012, str(ch), ha="center", va="center", fontsize=9.5,
+                color=INK, fontweight="bold")
+        ax.text(x + w / 2, top - h / 2 - 0.015, size, ha="center", va="center", fontsize=7.6, color="#5A6270")
+        if k:
+            arrow(ax, x - 0.010, top - h / 2, x, top - h / 2)
+    arrow(ax, 0.342, 0.788, 0.360, 0.788)
+    arrow(ax, ex + 4 * gap + w + 0.004, top - 0.05, dx - 0.004, top - 0.05)
+
+
+    for k in range(3):                                   # skip-связи: дуги над блоками
+        xs = ex + (3 - k) * gap + w / 2
+        xd = dx + k * gap + w / 2
+        ax.annotate("", xy=(xd, top + 0.004), xytext=(xs, top + 0.004),
+                    arrowprops=dict(arrowstyle="-", color=GREY, lw=0.9, ls=(0, (3, 2)),
+                                    connectionstyle="arc3,rad=-0.22"))
+    ax.text(0.30, top + 0.052, "skip-связи", ha="center", fontsize=8.2, color=GREY)
+
+    box(ax, 0.865, 0.762, 0.125, 0.062, "тепловые карты\nK × 128 × 128", color=GREEN, fill="#EFF8F2", fontsize=8.5)
+    box(ax, 0.865, 0.652, 0.125, 0.062, "логиты «точка\nв кадре», K", color=ORANGE, fill="#FDF0E6", fontsize=8.5)
+    arrow(ax, dx + 2 * gap + w + 0.004, 0.793, 0.863, 0.793)
+    xb = ex + 4 * gap + w / 2
+    ax.annotate("", xy=(0.863, 0.683), xytext=(xb, 0.706),
+                arrowprops=dict(arrowstyle="-|>", color=ORANGE, lw=1.2, connectionstyle="angle,angleA=-90,angleB=0,rad=6"))
+    ax.text(0.60, 0.645, "вторая голова — из бутылочного горлышка: глобальный пулинг → линейный слой",
+            ha="center", fontsize=8.1, color="#5A6270")
+
+    ax.text(0.5, 0.600, "K = 4 точки на позвоночнике, 9 на бедре   ·   ансамбль из трёх сетей: усредняются карты "
+                        "и логиты, а не координаты   ·   декодирование субпиксельное",
+            ha="center", fontsize=8.7, color="#5A6270")
+    ax.text(0.5, 0.568, "потери: MSE по картам только для видимых точек × 100  +  0.5 × BCE по видимости      |      "
+                        "AdamW 2e-3, OneCycle, батч 8, 120 эпох",
+            ha="center", fontsize=8.7, color="#5A6270")
+
+    # ---------- 3, 4, 5
+    y, h = 0.278, 0.252
+    box(ax, 0.01, y, 0.30, h, "", color=GREY, fill="#F5F6F7")
+    ax.text(0.16, 0.508, "3 · Сегментация металла", ha="center", fontsize=10, fontweight="bold", color=INK)
+    ax.text(0.16, 0.392, "та же U-Net, один выходной канал → маска\n\n"
+                         "обучение: обведённые инородные тела\nна 23 снимках + синтетические косточки\n"
+                         "и крючки, нарисованные на чистых\n\n"
+                         "даёт и контур для врача, и площадь\nкак признак для решения",
+            ha="center", va="center", fontsize=8.2, color="#5A6270", linespacing=1.5)
+
+    box(ax, 0.345, y, 0.30, h, "", color=GREY, fill="#F5F6F7")
+    ax.text(0.495, 0.508, "4 · Ротация и укладка бедра", ha="center", fontsize=10, fontweight="bold", color=INK)
+    ax.text(0.495, 0.392, "кроп 128×128, выровненный по оси диафиза\n(ось прослеживается по кости, не по точкам)\n\n"
+                          "→ HOG → ExtraTrees: 800 деревьев,\nmin_samples_leaf 3, max_features 0.2\n\n"
+                          "обучение на кропах ручной разметки\nи всех членов ансамбля; смешивание\nсо вторым бедром, вес 0.2",
+            ha="center", va="center", fontsize=8.2, color="#5A6270", linespacing=1.45)
+
+    box(ax, 0.68, y, 0.31, h, "", color=GREY, fill="#F5F6F7")
+    ax.text(0.835, 0.508, "5 · Пять решающих моделей", ha="center", fontsize=10, fontweight="bold", color=INK)
+    ax.text(0.835, 0.392, "по 1–3 измерения на тип нарушения\n\n"
+                          "веса обрезаны снизу нулём: «ровнее»\nне может оказаться «хуже»\n\n"
+                          "калибровка Платта по процентилю счёта\nсвой порог у каждого типа\n"
+                          "+ вторая рабочая точка для скрининга",
+            ha="center", va="center", fontsize=8.2, color="#5A6270", linespacing=1.5)
+
+    for x1, x2 in ((0.312, 0.343), (0.647, 0.678)):
+        arrow(ax, x1, 0.418, x2, 0.418)
+
+    box(ax, 0.20, 0.105, 0.60, 0.12, "", color=BLUE, fill="#EAF0FB")
+    ax.text(0.5, 0.196, "Вердикт: «качественное / есть нарушение» + типы нарушений + измерения",
+            ha="center", fontsize=10.5, fontweight="bold", color=INK)
+    ax.text(0.5, 0.147, "снимок некачественный, если сработал хотя бы один тип — поэтому у каждой пометки названа причина;\n"
+                        "общая вероятность собирается noisy-OR и калибруется по области: по ней считается ROC-AUC",
+            ha="center", va="center", fontsize=8.6, color="#5A6270", linespacing=1.5)
+    arrow(ax, 0.5, 0.272, 0.5, 0.230)
+    ax.text(0.5, 0.045, "Обучение и проверка: кросс-валидация по пациентам, 5 фолдов × 10 повторов   ·   "
+                        "пороги подбираются внутри обучающей части   ·   синтетика добавляется только в обучение",
+            ha="center", fontsize=8.8, color="#5A6270")
+    save(fig, "ml_architecture")
+
+
 # ------------------------------------------------------------------------------------------- данные
 def dataset(idx):
     """Два панно: из чего состоит выборка и насколько редки нарушения каждого типа."""
@@ -251,6 +368,7 @@ def main():
     report = json.loads(Path(f"data/train/pipeline_eval{args.eval}.json").read_text())
     oof = pd.read_csv(f"data/train/pipeline_oof{args.eval}.csv")
     architecture()
+    ml_architecture()
     dataset(idx)
     split()
     metrics_ci(report)
