@@ -5,7 +5,8 @@
 #   ./run.sh build                      собрать образ
 #   ./run.sh predict <папка|архив.zip> [<выход>]   обработать исследования (по умолчанию в ./outputs)
 #   ./run.sh serve [<порт>]             веб-интерфейс и HTTP API (по умолчанию 8000)
-#   ./run.sh test                       прогнать на тестовых файлах организаторов
+#   ./run.sh check                      проверить сборку без медицинских данных
+#   ./run.sh test                       прогнать на тестовых файлах организаторов (если они есть локально)
 set -eu
 
 IMAGE="${DXAQC_IMAGE:-dxa-qc}"
@@ -49,6 +50,11 @@ serve() {
         --entrypoint uvicorn "$IMAGE" dxaqc.api:app --host 0.0.0.0 --port 8000
 }
 
+selfcheck() {
+    ensure_image
+    docker run --rm --platform "$PLATFORM" --entrypoint python "$IMAGE" scripts/selfcheck.py
+}
+
 selftest() {
     [ -d "$ROOT/data/test_sample" ] || die "нет папки data/test_sample с тестовыми файлами"
     predict "$ROOT/data/test_sample" "$ROOT/outputs/selftest"
@@ -58,6 +64,7 @@ CMD="${1:-}"
 [ $# -gt 0 ] && shift || true
 case "$CMD" in
     build)   build ;;
+    check)   selfcheck ;;
     predict) predict "$@" ;;
     serve)   serve "$@" ;;
     test)    selftest ;;

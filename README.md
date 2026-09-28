@@ -8,6 +8,43 @@
 > Метрики, отрицательные результаты и ограничения — в `docs/night_report.md`.
 > Лицензия — MIT ([LICENSE](LICENSE)). Медицинские данные организаторов в репозиторий не входят.
 
+## Быстрая проверка решения
+
+Нужен только Docker. Команды проверены на Linux и macOS.
+
+```bash
+git clone https://github.com/michael-lobanoff/dxa-qc.git && cd dxa-qc
+./run.sh build                            # собрать образ, 5–10 минут, один раз
+./run.sh check                            # проверить сборку — без медицинских данных
+./run.sh predict /путь/к/исследованиям    # обработать папку или .zip → ./outputs
+./run.sh serve                            # веб-интерфейс на http://localhost:8000
+```
+
+`./run.sh check` за десяток секунд убеждается, что образ рабочий: загружаются модели, конвейер
+отрабатывает на синтетическом снимке, посторонние изображения отклоняются, таблица собирается
+со всеми колонками ТЗ 2.5. Медицинские данные для этого не нужны.
+
+**Что появится после `predict`:**
+
+| Файл | Что внутри |
+|---|---|
+| `outputs/results.csv` и `.xlsx` | одна строка на изображение: область, проекция, вердикт, тип нарушения, измерения, время |
+| `outputs/results_vis.zip` | по каждому снимку: PNG с подсветкой нарушения, DICOM Secondary Capture и DICOM SR |
+| строка в консоли | `N images, N processed, 0 failed … mean time 0.43s` |
+
+**Что стоит посмотреть в первую очередь:** колонку `quality_class` (0 — качественное, 1 — есть
+нарушение), рядом `violation_type` со словами из словаря организаторов и `details` — измерения
+в миллиметрах и градусах, по которым вынесен вердикт. Ошибки обработки не прерывают прогон:
+такая строка получает `processing_status = Failure` и текст в колонке `error`.
+
+Если Docker недоступен, то же самое запускается напрямую:
+
+```bash
+python3 -m venv .venv && .venv/bin/pip install -r requirements.txt && .venv/bin/pip install -e .
+.venv/bin/python scripts/selfcheck.py                                   # та же проверка сборки
+.venv/bin/python scripts/predict.py /путь/к/исследованиям --out outputs/results.csv --vis outputs/vis
+```
+
 ## Как это работает
 
 ```
@@ -74,7 +111,8 @@ AUC при одинаковой ошибке точек), а ансамбль и
 | [docs/user_guide.md](docs/user_guide.md) | руководство пользователя: запуск, чтение отчёта и картинок, что означает каждое нарушение |
 | [docs/deployment.md](docs/deployment.md) | развёртывание: сборка образа, переменные окружения, безопасность, типовые проблемы |
 | [docs/training.md](docs/training.md) | обучение и дообучение моделей на новых данных |
-| [docs/presentation.md](docs/presentation.md) | текст слайдов и сценарий демонстрации |
+| [docs/pitch_script.md](docs/pitch_script.md) | защита: логика рассказа, текст по слайдам, какая картинка куда |
+| [docs/medical_brief.md](docs/medical_brief.md) | что такое денситометрия, что она меряет и почему укладка решает |
 | [docs/data_requests.md](docs/data_requests.md) | поиск внешних данных: что нашли, письма для запроса |
 | [docs/night_report.md](docs/night_report.md) | отчёт по экспериментам: что пробовали, что сработало, что нет |
 | [docs/tz_checklist.md](docs/tz_checklist.md) | постраничная сверка с техническим заданием |
@@ -146,8 +184,10 @@ models/           веса и модели: kp_spine*.pt, kp_hip*.pt (ансам
 
 ```bash
 ./run.sh build                    # собрать образ
+./run.sh check                    # проверка сборки без медицинских данных
 ./run.sh predict /path/to/studies # обработать исследования -> ./outputs
 ./run.sh serve                    # веб-интерфейс на http://localhost:8000
+./run.sh test                     # прогон на data/test_sample, если файлы организаторов лежат локально
 ```
 
 Те же шаги вручную:

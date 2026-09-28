@@ -22,7 +22,7 @@ RUN pip install --index-url ${TORCH_INDEX} torch==2.14.0 \
     && pip install -r /tmp/req.txt
 
 COPY dxaqc ./dxaqc
-COPY scripts/predict.py ./scripts/predict.py
+COPY scripts/predict.py scripts/selfcheck.py ./scripts/
 COPY models ./models
 RUN pip install --no-deps -e .
 
