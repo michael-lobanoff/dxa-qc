@@ -7,6 +7,7 @@
 """
 import argparse
 import json
+import sys
 from pathlib import Path
 
 import matplotlib
@@ -18,8 +19,9 @@ import matplotlib.pyplot as plt  # noqa: E402
 from matplotlib.patches import FancyArrowPatch, FancyBboxPatch  # noqa: E402
 
 OUT = Path("docs/figures")
-BLUE, ORANGE, GREY, GREEN, RED = "#4C7BD9", "#E8833A", "#9AA0A6", "#2E9E5B", "#C2413A"
-INK, LINE = "#1B1D21", "#D8DCE2"
+sys.path.insert(0, str(Path(__file__).parent))
+from palette import (BLUE, FILL_BLUE, FILL_GREEN, FILL_ORANGE, GREEN, GREY,  # noqa: E402
+                     INK, LINE, MUTED, ORANGE, RED)
 TYPE_RU = {"spine:v_axis": "Наклон оси\nпозвоночника", "spine:v_pos": "Некорректная\nукладка",
            "spine:v_artifact": "Посторонние\nпредметы", "hip:v_roi": "Некорректная\nобласть интереса",
            "hip:v_posrot": "Ротация и укладка\nбедра"}
@@ -34,7 +36,7 @@ def save(fig, name):
     print(f"docs/figures/{name}.png")
 
 
-def box(ax, x, y, w, h, text, color=BLUE, fill="#F2F6FD", fontsize=9.5, bold=False):
+def box(ax, x, y, w, h, text, color=BLUE, fill=FILL_BLUE, fontsize=9.5, bold=False):
     ax.add_patch(FancyBboxPatch((x, y), w, h, boxstyle="round,pad=0.012,rounding_size=0.02",
                                 linewidth=1.4, edgecolor=color, facecolor=fill))
     ax.text(x + w / 2, y + h / 2, text, ha="center", va="center", fontsize=fontsize, color=INK,
@@ -62,7 +64,7 @@ def architecture():
     for k, (title, sub) in enumerate(steps):
         x = 0.01 + k * 0.2
         box(ax, x, y, w, h, f"{title}\n\n", color=BLUE, bold=True, fontsize=10.5)
-        ax.text(x + w / 2, y + 0.075, sub, ha="center", va="center", fontsize=8.2, color="#5A6270", linespacing=1.3)
+        ax.text(x + w / 2, y + 0.075, sub, ha="center", va="center", fontsize=8.2, color=MUTED, linespacing=1.3)
         if k:
             arrow(ax, x - 0.025, y + h / 2, x, y + h / 2)
 
@@ -71,11 +73,11 @@ def architecture():
             ("Текстовый отчёт", "DICOM Basic Text SR"), ("Веб-интерфейс и API", "FastAPI, Swagger")]
     for k, (title, sub) in enumerate(outs):
         x = 0.03 + k * 0.245
-        box(ax, x, 0.16, 0.205, 0.2, f"{title}\n", color=GREEN, fill="#EFF8F2", fontsize=9.5, bold=True)
-        ax.text(x + 0.1, 0.205, sub, ha="center", va="center", fontsize=8, color="#5A6270")
+        box(ax, x, 0.16, 0.205, 0.2, f"{title}\n", color=GREEN, fill=FILL_GREEN, fontsize=9.5, bold=True)
+        ax.text(x + 0.1, 0.205, sub, ha="center", va="center", fontsize=8, color=MUTED)
 
     ax.text(0.5, 0.06, "Всё локально, в одном docker-образе: ни одного обращения за пределы машины",
-            ha="center", fontsize=9.5, color="#5A6270", style="italic")
+            ha="center", fontsize=9.5, color=MUTED, style="italic")
     save(fig, "architecture")
 
 
@@ -87,7 +89,7 @@ def ml_architecture():
     ax.text(0.5, 0.985, "ML-архитектура: пять обучаемых моделей", ha="center", fontsize=15,
             fontweight="bold", color=INK)
     ax.text(0.5, 0.957, "чужие предобученные веса не используются — всё обучено на данных организаторов",
-            ha="center", fontsize=9.5, color="#5A6270", style="italic")
+            ha="center", fontsize=9.5, color=MUTED, style="italic")
 
     # ---------- 1. область
     box(ax, 0.01, 0.745, 0.24, 0.135, "", color=GREY, fill="#F5F6F7")
@@ -95,13 +97,13 @@ def ml_architecture():
     ax.text(0.13, 0.795, "снимок → 128×128 → HOG\n(ячейка 16, 9 ориентаций)\n"
                          "→ логистическая регрессия → 3 класса\n"
                          "+ новизна, размер пикселя, размер кадра",
-            ha="center", va="center", fontsize=8.2, color="#5A6270", linespacing=1.5)
+            ha="center", va="center", fontsize=8.2, color=MUTED, linespacing=1.5)
 
     # ---------- 2. U-Net
     ax.text(0.63, 0.893, "2 · Сеть ключевых точек — U-Net, 4.86 млн параметров", ha="center",
             fontsize=10.5, fontweight="bold", color=INK)
     box(ax, 0.265, 0.738, 0.075, 0.10, "вход\n1 × 256 × 256\n+ 2 канала\nкоординат", color=BLUE,
-        fill="#EAF0FB", fontsize=8.0)
+        fill=FILL_BLUE, fontsize=8.0)
 
     top = 0.838
     enc = [("256²", 32), ("128²", 64), ("64²", 128), ("32²", 256), ("16²", 256)]
@@ -111,20 +113,20 @@ def ml_architecture():
         h = 0.145 * (1 - k * 0.145)
         x = ex + k * gap
         ax.add_patch(FancyBboxPatch((x, top - h), w, h, boxstyle="round,pad=0.004,rounding_size=0.012",
-                                    linewidth=1.3, edgecolor=BLUE, facecolor="#EAF0FB"))
+                                    linewidth=1.3, edgecolor=BLUE, facecolor=FILL_BLUE))
         ax.text(x + w / 2, top - h / 2 + 0.012, str(ch), ha="center", va="center", fontsize=9.5,
                 color=INK, fontweight="bold")
-        ax.text(x + w / 2, top - h / 2 - 0.015, size, ha="center", va="center", fontsize=7.6, color="#5A6270")
+        ax.text(x + w / 2, top - h / 2 - 0.015, size, ha="center", va="center", fontsize=7.6, color=MUTED)
         if k:
             arrow(ax, x - 0.010, top - h / 2, x, top - h / 2)
     for k, (size, ch) in enumerate(dec):
         h = 0.145 * (0.565 + k * 0.145)
         x = dx + k * gap
         ax.add_patch(FancyBboxPatch((x, top - h), w, h, boxstyle="round,pad=0.004,rounding_size=0.012",
-                                    linewidth=1.3, edgecolor=GREEN, facecolor="#EFF8F2"))
+                                    linewidth=1.3, edgecolor=GREEN, facecolor=FILL_GREEN))
         ax.text(x + w / 2, top - h / 2 + 0.012, str(ch), ha="center", va="center", fontsize=9.5,
                 color=INK, fontweight="bold")
-        ax.text(x + w / 2, top - h / 2 - 0.015, size, ha="center", va="center", fontsize=7.6, color="#5A6270")
+        ax.text(x + w / 2, top - h / 2 - 0.015, size, ha="center", va="center", fontsize=7.6, color=MUTED)
         if k:
             arrow(ax, x - 0.010, top - h / 2, x, top - h / 2)
     arrow(ax, 0.342, 0.788, 0.360, 0.788)
@@ -139,21 +141,21 @@ def ml_architecture():
                                     connectionstyle="arc3,rad=-0.22"))
     ax.text(0.30, top + 0.052, "skip-связи", ha="center", fontsize=8.2, color=GREY)
 
-    box(ax, 0.865, 0.762, 0.125, 0.062, "тепловые карты\nK × 128 × 128", color=GREEN, fill="#EFF8F2", fontsize=8.5)
-    box(ax, 0.865, 0.652, 0.125, 0.062, "логиты «точка\nв кадре», K", color=ORANGE, fill="#FDF0E6", fontsize=8.5)
+    box(ax, 0.865, 0.762, 0.125, 0.062, "тепловые карты\nK × 128 × 128", color=GREEN, fill=FILL_GREEN, fontsize=8.5)
+    box(ax, 0.865, 0.652, 0.125, 0.062, "логиты «точка\nв кадре», K", color=ORANGE, fill=FILL_ORANGE, fontsize=8.5)
     arrow(ax, dx + 2 * gap + w + 0.004, 0.793, 0.863, 0.793)
     xb = ex + 4 * gap + w / 2
     ax.annotate("", xy=(0.863, 0.683), xytext=(xb, 0.706),
                 arrowprops=dict(arrowstyle="-|>", color=ORANGE, lw=1.2, connectionstyle="angle,angleA=-90,angleB=0,rad=6"))
     ax.text(0.60, 0.645, "вторая голова — из бутылочного горлышка: глобальный пулинг → линейный слой",
-            ha="center", fontsize=8.1, color="#5A6270")
+            ha="center", fontsize=8.1, color=MUTED)
 
     ax.text(0.5, 0.600, "K = 4 точки на позвоночнике, 9 на бедре   ·   ансамбль из трёх сетей: усредняются карты "
                         "и логиты, а не координаты   ·   декодирование субпиксельное",
-            ha="center", fontsize=8.7, color="#5A6270")
+            ha="center", fontsize=8.7, color=MUTED)
     ax.text(0.5, 0.568, "потери: MSE по картам только для видимых точек × 100  +  0.5 × BCE по видимости      |      "
                         "AdamW 2e-3, OneCycle, батч 8, 120 эпох",
-            ha="center", fontsize=8.7, color="#5A6270")
+            ha="center", fontsize=8.7, color=MUTED)
 
     # ---------- 3, 4, 5
     y, h = 0.278, 0.252
@@ -163,14 +165,14 @@ def ml_architecture():
                          "обучение: обведённые инородные тела\nна 23 снимках + синтетические косточки\n"
                          "и крючки, нарисованные на чистых\n\n"
                          "даёт и контур для врача, и площадь\nкак признак для решения",
-            ha="center", va="center", fontsize=8.2, color="#5A6270", linespacing=1.5)
+            ha="center", va="center", fontsize=8.2, color=MUTED, linespacing=1.5)
 
     box(ax, 0.345, y, 0.30, h, "", color=GREY, fill="#F5F6F7")
     ax.text(0.495, 0.508, "4 · Ротация и укладка бедра", ha="center", fontsize=10, fontweight="bold", color=INK)
     ax.text(0.495, 0.392, "кроп 128×128, выровненный по оси диафиза\n(ось прослеживается по кости, не по точкам)\n\n"
                           "→ HOG → ExtraTrees: 800 деревьев,\nmin_samples_leaf 3, max_features 0.2\n\n"
                           "обучение на кропах ручной разметки\nи всех членов ансамбля; смешивание\nсо вторым бедром, вес 0.2",
-            ha="center", va="center", fontsize=8.2, color="#5A6270", linespacing=1.45)
+            ha="center", va="center", fontsize=8.2, color=MUTED, linespacing=1.45)
 
     box(ax, 0.68, y, 0.31, h, "", color=GREY, fill="#F5F6F7")
     ax.text(0.835, 0.508, "5 · Пять решающих моделей", ha="center", fontsize=10, fontweight="bold", color=INK)
@@ -178,21 +180,21 @@ def ml_architecture():
                           "веса обрезаны снизу нулём: «ровнее»\nне может оказаться «хуже»\n\n"
                           "калибровка Платта по процентилю счёта\nсвой порог у каждого типа\n"
                           "+ вторая рабочая точка для скрининга",
-            ha="center", va="center", fontsize=8.2, color="#5A6270", linespacing=1.5)
+            ha="center", va="center", fontsize=8.2, color=MUTED, linespacing=1.5)
 
     for x1, x2 in ((0.312, 0.343), (0.647, 0.678)):
         arrow(ax, x1, 0.418, x2, 0.418)
 
-    box(ax, 0.20, 0.105, 0.60, 0.12, "", color=BLUE, fill="#EAF0FB")
+    box(ax, 0.20, 0.105, 0.60, 0.12, "", color=BLUE, fill=FILL_BLUE)
     ax.text(0.5, 0.196, "Вердикт: «качественное / есть нарушение» + типы нарушений + измерения",
             ha="center", fontsize=10.5, fontweight="bold", color=INK)
     ax.text(0.5, 0.147, "снимок некачественный, если сработал хотя бы один тип — поэтому у каждой пометки названа причина;\n"
                         "общая вероятность собирается noisy-OR и калибруется по области: по ней считается ROC-AUC",
-            ha="center", va="center", fontsize=8.6, color="#5A6270", linespacing=1.5)
+            ha="center", va="center", fontsize=8.6, color=MUTED, linespacing=1.5)
     arrow(ax, 0.5, 0.272, 0.5, 0.230)
     ax.text(0.5, 0.045, "Обучение и проверка: кросс-валидация по пациентам, 5 фолдов × 10 повторов   ·   "
                         "пороги подбираются внутри обучающей части   ·   синтетика добавляется только в обучение",
-            ha="center", fontsize=8.8, color="#5A6270")
+            ha="center", fontsize=8.8, color=MUTED)
     save(fig, "ml_architecture")
 
 
@@ -202,7 +204,7 @@ def _slide(title, subtitle):
     fig, ax = plt.subplots(figsize=(13.33, 7.5))
     ax.set_xlim(0, 1); ax.set_ylim(0, 1); ax.axis("off")
     ax.text(0.5, 0.945, title, ha="center", fontsize=19, fontweight="bold", color=INK)
-    ax.text(0.5, 0.885, subtitle, ha="center", fontsize=12, color="#5A6270")
+    ax.text(0.5, 0.885, subtitle, ha="center", fontsize=12, color=MUTED)
     return fig, ax
 
 
@@ -212,7 +214,7 @@ def _facts(ax, items, y=0.10):
     for k, (num, cap) in enumerate(items):
         x = (k + 0.5) / n
         ax.text(x, y + 0.055, num, ha="center", fontsize=17, fontweight="bold", color=BLUE)
-        ax.text(x, y - 0.005, cap, ha="center", fontsize=10, color="#5A6270", linespacing=1.4)
+        ax.text(x, y - 0.005, cap, ha="center", fontsize=10, color=MUTED, linespacing=1.4)
 
 
 def model1_region():
@@ -223,10 +225,10 @@ def model1_region():
              ("3 класса", "позвоночник,\nлевое и правое бедро")]
     for k, (t, sub) in enumerate(chain):
         x = 0.035 + k * 0.195
-        box(ax, x, 0.62, 0.155, 0.16, "", color=BLUE, fill="#EAF0FB")
+        box(ax, x, 0.62, 0.155, 0.16, "", color=BLUE, fill=FILL_BLUE)
         ax.text(x + 0.0775, 0.725, t, ha="center", va="center", fontsize=12, fontweight="bold",
                 color=INK, linespacing=1.3)
-        ax.text(x + 0.0775, 0.665, sub, ha="center", va="center", fontsize=9.5, color="#5A6270", linespacing=1.3)
+        ax.text(x + 0.0775, 0.665, sub, ha="center", va="center", fontsize=9.5, color=MUTED, linespacing=1.3)
         if k:
             arrow(ax, x - 0.035, 0.70, x - 0.004, 0.70)
 
@@ -237,11 +239,11 @@ def model1_region():
              ("Размер кадра", "длинная сторона больше 1200 пикселей —\nто же самое, работает и без тегов")]
     for k, (t, sub) in enumerate(gates):
         x = 0.035 + k * 0.325
-        box(ax, x, 0.32, 0.29, 0.185, "", color=ORANGE, fill="#FDF0E6")
+        box(ax, x, 0.32, 0.29, 0.185, "", color=ORANGE, fill=FILL_ORANGE)
         ax.text(x + 0.145, 0.455, t, ha="center", fontsize=12, fontweight="bold", color=INK)
-        ax.text(x + 0.145, 0.385, sub, ha="center", va="center", fontsize=9.8, color="#5A6270", linespacing=1.45)
+        ax.text(x + 0.145, 0.385, sub, ha="center", va="center", fontsize=9.8, color=MUTED, linespacing=1.45)
     ax.text(0.5, 0.265, "не прошёл проверку → «оценка не проводится» с причиной, а не вердикт наугад",
-            ha="center", fontsize=11, color="#5A6270", style="italic")
+            ha="center", fontsize=11, color=MUTED, style="italic")
     _facts(ax, [("252 / 252", "верно определённая область\nна обучающей выборке"),
                 ("66 / 66", "обычных рентгенограмм\nотклонено"),
                 ("350 / 350", "снимков с чужого денситометра\nприняты как позвоночник")])
@@ -258,19 +260,19 @@ def model2_keypoints():
     for k, (size, ch) in enumerate(enc):
         h = 0.20 * (1 - k * 0.145); x = ex + k * gap
         ax.add_patch(FancyBboxPatch((x, top - h), w, h, boxstyle="round,pad=0.004,rounding_size=0.012",
-                                    linewidth=1.5, edgecolor=BLUE, facecolor="#EAF0FB"))
+                                    linewidth=1.5, edgecolor=BLUE, facecolor=FILL_BLUE))
         ax.text(x + w / 2, top - h / 2 + 0.018, str(ch), ha="center", va="center", fontsize=12,
                 color=INK, fontweight="bold")
-        ax.text(x + w / 2, top - h / 2 - 0.018, size, ha="center", va="center", fontsize=9, color="#5A6270")
+        ax.text(x + w / 2, top - h / 2 - 0.018, size, ha="center", va="center", fontsize=9, color=MUTED)
         if k:
             arrow(ax, x - 0.011, top - h / 2, x - 0.001, top - h / 2)
     for k, (size, ch) in enumerate(dec):
         h = 0.20 * (0.565 + k * 0.145); x = dx + k * gap
         ax.add_patch(FancyBboxPatch((x, top - h), w, h, boxstyle="round,pad=0.004,rounding_size=0.012",
-                                    linewidth=1.5, edgecolor=GREEN, facecolor="#EFF8F2"))
+                                    linewidth=1.5, edgecolor=GREEN, facecolor=FILL_GREEN))
         ax.text(x + w / 2, top - h / 2 + 0.018, str(ch), ha="center", va="center", fontsize=12,
                 color=INK, fontweight="bold")
-        ax.text(x + w / 2, top - h / 2 - 0.018, size, ha="center", va="center", fontsize=9, color="#5A6270")
+        ax.text(x + w / 2, top - h / 2 - 0.018, size, ha="center", va="center", fontsize=9, color=MUTED)
         if k:
             arrow(ax, x - 0.011, top - h / 2, x - 0.001, top - h / 2)
     arrow(ax, ex + 4 * gap + w + 0.004, top - 0.06, dx - 0.004, top - 0.06)
@@ -282,26 +284,26 @@ def model2_keypoints():
     ax.text(0.145, top + 0.055, "skip-связи", ha="center", fontsize=10, color=GREY)
 
     box(ax, 0.035, 0.63, 0.155, 0.135, "вход\n1 × 256 × 256\n+ 2 канала координат", color=BLUE,
-        fill="#EAF0FB", fontsize=10.5)
+        fill=FILL_BLUE, fontsize=10.5)
     arrow(ax, 0.192, 0.695, 0.232, 0.695)
-    box(ax, 0.815, 0.66, 0.16, 0.10, "тепловые карты\nK × 128 × 128", color=GREEN, fill="#EFF8F2", fontsize=11)
-    box(ax, 0.815, 0.515, 0.16, 0.10, "логиты\n«точка в кадре»", color=ORANGE, fill="#FDF0E6", fontsize=11)
+    box(ax, 0.815, 0.66, 0.16, 0.10, "тепловые карты\nK × 128 × 128", color=GREEN, fill=FILL_GREEN, fontsize=11)
+    box(ax, 0.815, 0.515, 0.16, 0.10, "логиты\n«точка в кадре»", color=ORANGE, fill=FILL_ORANGE, fontsize=11)
     arrow(ax, dx + 2 * gap + w + 0.004, 0.71, 0.813, 0.71)
     xb = ex + 4 * gap + w / 2
     ax.annotate("", xy=(0.813, 0.565), xytext=(xb, 0.59),
                 arrowprops=dict(arrowstyle="-|>", color=ORANGE, lw=1.3,
                                 connectionstyle="angle,angleA=-90,angleB=0,rad=8"))
-    ax.text(0.53, 0.525, "глобальный пулинг → линейный слой", ha="center", fontsize=10, color="#5A6270")
+    ax.text(0.53, 0.525, "глобальный пулинг → линейный слой", ha="center", fontsize=10, color=MUTED)
 
     ax.text(0.5, 0.475, "Зачем вторая голова", ha="center", fontsize=12.5, fontweight="bold", color=INK)
     ax.text(0.5, 0.425, "«Некорректная укладка позвоночника» по ТЗ — это когда гребни таза не попали в кадр.\n"
                         "То есть ответ второй головы и есть признак этого типа нарушения, а не служебный выход.",
-            ha="center", va="center", fontsize=11, color="#5A6270", linespacing=1.5)
+            ha="center", va="center", fontsize=11, color=MUTED, linespacing=1.5)
     ax.text(0.5, 0.325, "потери: MSE по картам только для видимых точек × 100  +  0.5 × BCE по видимости      |      "
                         "AdamW 2e-3, OneCycle, батч 8, 120 эпох",
-            ha="center", fontsize=10.5, color="#5A6270")
+            ha="center", fontsize=10.5, color=MUTED)
     ax.text(0.5, 0.275, "ансамбль из трёх сетей с разными аугментациями: усредняются карты и логиты, а не координаты",
-            ha="center", fontsize=10.5, color="#5A6270")
+            ha="center", fontsize=10.5, color=MUTED)
     _facts(ax, [("4 и 9", "точек на позвоночнике\nи на бедре"),
                 ("0.9–5.9 мм", "медианная ошибка точки\nвне обучающих фолдов"),
                 ("98 %", "точность ответа\n«точка в кадре / нет»")])
@@ -317,10 +319,10 @@ def model3_segmentation():
     for k, (t, sub) in enumerate(steps):
         x = 0.04 + k * 0.245
         box(ax, x, 0.60, 0.20, 0.17, "", color=BLUE if k < 3 else GREEN,
-            fill="#EAF0FB" if k < 3 else "#EFF8F2")
+            fill=FILL_BLUE if k < 3 else FILL_GREEN)
         ax.text(x + 0.10, 0.705, t, ha="center", va="center", fontsize=12.5, fontweight="bold",
                 color=INK, linespacing=1.3)
-        ax.text(x + 0.10, 0.645, sub, ha="center", va="center", fontsize=10, color="#5A6270", linespacing=1.35)
+        ax.text(x + 0.10, 0.645, sub, ha="center", va="center", fontsize=10, color=MUTED, linespacing=1.35)
         if k:
             arrow(ax, x - 0.045, 0.685, x - 0.004, 0.685)
 
@@ -328,11 +330,11 @@ def model3_segmentation():
     ax.text(0.28, 0.395, "• обведённые инородные тела на 23 снимках\n"
                          "• синтетические косточки белья, крючки и клипсы,\n   нарисованные генератором на чистых снимках\n"
                          "• 80 эпох, AdamW 2e-3, OneCycle",
-            ha="center", va="center", fontsize=11, color="#5A6270", linespacing=1.7)
+            ha="center", va="center", fontsize=11, color=MUTED, linespacing=1.7)
     ax.text(0.72, 0.51, "Почему сеть, а не только правило", ha="center", fontsize=13, fontweight="bold", color=INK)
     ax.text(0.72, 0.395, "Морфологический фильтр находит тонкие яркие\nструктуры, но путается в рёбрах и кортикальном слое.\n"
                          "Сеть — независимое мнение: вместе они лучше,\nчем каждый по отдельности.",
-            ha="center", va="center", fontsize=11, color="#5A6270", linespacing=1.7)
+            ha="center", va="center", fontsize=11, color=MUTED, linespacing=1.7)
     _facts(ax, [("0.89", "AUC сети\nсамой по себе"),
                 ("0.91", "AUC в паре\nс правилом"),
                 ("0.80", "F1 типа «посторонние\nпредметы» — лучший из пяти")])
@@ -349,10 +351,10 @@ def model4_rotation():
              ("Смешивание\nсо вторым бедром", "вес 0.2")]
     for k, (t, sub) in enumerate(steps):
         x = 0.025 + k * 0.196
-        box(ax, x, 0.58, 0.165, 0.19, "", color=BLUE, fill="#EAF0FB")
+        box(ax, x, 0.58, 0.165, 0.19, "", color=BLUE, fill=FILL_BLUE)
         ax.text(x + 0.0825, 0.70, t, ha="center", va="center", fontsize=11.5, fontweight="bold",
                 color=INK, linespacing=1.3)
-        ax.text(x + 0.0825, 0.625, sub, ha="center", va="center", fontsize=9.5, color="#5A6270", linespacing=1.35)
+        ax.text(x + 0.0825, 0.625, sub, ha="center", va="center", fontsize=9.5, color=MUTED, linespacing=1.35)
         if k:
             arrow(ax, x - 0.032, 0.675, x - 0.004, 0.675)
 
@@ -360,14 +362,14 @@ def model4_rotation():
             fontweight="bold", color=INK)
     ax.text(0.28, 0.395, "Кроп, выровненный по ключевым точкам, зависит\nот того, какая сеть их поставила: угол расходится\n"
                          "на 4.3° между детекторами. Ось, прослеженная\nпо кости, — на 0.25°.",
-            ha="center", va="center", fontsize=10.8, color="#5A6270", linespacing=1.65)
+            ha="center", va="center", fontsize=10.8, color=MUTED, linespacing=1.65)
     ax.text(0.72, 0.495, "Почему смешиваем два бедра", ha="center", fontsize=12.5, fontweight="bold", color=INK)
     ax.text(0.72, 0.395, "Оба бедра укладывает один лаборант за один сеанс.\nP(плохое | второе плохое) = 0.67 при базовых 0.24.\n"
                          "AUC почти не меняется, но оценка перестаёт\nскакать у порога: F1 0.591 → 0.657.",
-            ha="center", va="center", fontsize=10.8, color="#5A6270", linespacing=1.65)
+            ha="center", va="center", fontsize=10.8, color=MUTED, linespacing=1.65)
     ax.text(0.5, 0.275, "Проверено и отклонено: профиль медиального контура (AUC 0.52), мелкая сетка HOG, PCA, "
                         "бустинг, CNN с нуля,\nмногозадачная сеть «точки + ротация», добавление геометрии точек в лес (0.862 против 0.864)",
-            ha="center", va="center", fontsize=10, color="#5A6270", style="italic", linespacing=1.5)
+            ha="center", va="center", fontsize=10, color=MUTED, style="italic", linespacing=1.5)
     _facts(ax, [("36", "положительных примеров —\nсамый частый тип нарушения"),
                 ("0.864", "ROC-AUC вне\nобучающих фолдов"),
                 ("0.677", "F1 при рабочей точке\nпо умолчанию")])
@@ -387,11 +389,11 @@ def model5_decision(report):
         x = 0.02 + k * 0.196
         t = report["types"][key]
         c = BLUE if key.startswith("spine") else ORANGE
-        box(ax, x, 0.48, 0.17, 0.30, "", color=c, fill="#EAF0FB" if key.startswith("spine") else "#FDF0E6")
+        box(ax, x, 0.48, 0.17, 0.30, "", color=c, fill=FILL_BLUE if key.startswith("spine") else FILL_ORANGE)
         ax.text(x + 0.085, 0.735, TYPE_RU[key], ha="center", va="center", fontsize=11,
                 fontweight="bold", color=INK, linespacing=1.3)
         ax.text(x + 0.085, 0.625, feats[key], ha="center", va="center", fontsize=9.5,
-                color="#5A6270", linespacing=1.5)
+                color=MUTED, linespacing=1.5)
         ax.text(x + 0.085, 0.522, f"AUC {t['auc']:.2f} · F1 {t['f1']:.2f}\n{t['n_pos']} нарушений",
                 ha="center", va="center", fontsize=9.8, color=INK, linespacing=1.4)
 
@@ -401,7 +403,7 @@ def model5_decision(report):
                          "→ веса логрегрессией, обрезанные снизу нулём\n"
                          "→ калибровка Платта по процентилю счёта\n"
                          "→ свой порог",
-            ha="center", va="center", fontsize=10.5, color="#5A6270", linespacing=1.6)
+            ha="center", va="center", fontsize=10.5, color=MUTED, linespacing=1.6)
     ax.text(0.75, 0.41, "Почему так, а не одна большая сеть", ha="center", fontsize=12.5,
             fontweight="bold", color=INK)
     ax.text(0.75, 0.295, "6–36 положительных примеров на тип.\n"
@@ -409,7 +411,7 @@ def model5_decision(report):
                          "что ровная ось хуже кривой,\n"
                          "а процентиль держит вероятности разных\n"
                          "фолдов в одной шкале.",
-            ha="center", va="center", fontsize=10.5, color="#5A6270", linespacing=1.6)
+            ha="center", va="center", fontsize=10.5, color=MUTED, linespacing=1.6)
     _facts(ax, [("0.663", "macro-F1\nпо пяти типам"),
                 ("хотя бы один", "тип сработал —\nснимок некачественный"),
                 ("2 рабочие точки", "сбалансированная\nи скрининговая")])
@@ -435,7 +437,7 @@ def dataset(idx):
                  fontsize=10.5, color=INK)
     ax.set_ylim(0, counts.max() * 1.2)
     ax.spines[["top", "right"]].set_visible(False)
-    ax.grid(axis="y", color="#EEEEEE", lw=0.8); ax.set_axisbelow(True)
+    ax.grid(axis="y", color=LINE, lw=0.8); ax.set_axisbelow(True)
     ax.tick_params(labelsize=10)
 
     ax = axes[1]
@@ -453,9 +455,9 @@ def dataset(idx):
     ax.set_title("Положительных примеров по типам нарушений: от 6 до 36.\n"
                  "Отсюда все решения по модели — маленькие модели, монотонность, синтетика",
                  fontsize=10.5, color=INK)
-    ax.set_xlabel("снимков с этим нарушением", fontsize=9.5, color="#5A6270")
+    ax.set_xlabel("снимков с этим нарушением", fontsize=9.5, color=MUTED)
     ax.spines[["top", "right", "left"]].set_visible(False)
-    ax.grid(axis="x", color="#EEEEEE", lw=0.8); ax.set_axisbelow(True)
+    ax.grid(axis="x", color=LINE, lw=0.8); ax.set_axisbelow(True)
     save(fig, "dataset")
 
 
@@ -467,30 +469,30 @@ def split():
             fontweight="bold", color=INK)
     ax.text(0.5, 0.88, "Снимки одного исследования не попадают одновременно в обучение и в проверку — "
                        "иначе модель узнаёт пациента, а не нарушение",
-            ha="center", fontsize=9.8, color="#5A6270")
+            ha="center", fontsize=9.8, color=MUTED)
 
     rng = np.random.default_rng(3)
     for f in range(5):
         y = 0.68 - f * 0.135
-        ax.text(0.035, y + 0.035, f"фолд {f + 1}", fontsize=9.5, color="#5A6270", ha="left")
+        ax.text(0.035, y + 0.035, f"фолд {f + 1}", fontsize=9.5, color=MUTED, ha="left")
         for k in range(20):
             x = 0.14 + k * 0.038
             is_val = k // 4 == f
             ax.add_patch(FancyBboxPatch((x, y), 0.032, 0.07, boxstyle="round,pad=0.002,rounding_size=0.01",
                                         linewidth=1.0, edgecolor=ORANGE if is_val else BLUE,
-                                        facecolor="#FDF0E6" if is_val else "#EAF0FB"))
+                                        facecolor=FILL_ORANGE if is_val else FILL_BLUE))
 
 
     ax.add_patch(FancyBboxPatch((0.14, 0.02), 0.032, 0.05, boxstyle="round,pad=0.002,rounding_size=0.01",
-                                linewidth=1.0, edgecolor=BLUE, facecolor="#EAF0FB"))
+                                linewidth=1.0, edgecolor=BLUE, facecolor=FILL_BLUE))
     ax.text(0.185, 0.045, "обучение", fontsize=9, color=INK, va="center")
     ax.add_patch(FancyBboxPatch((0.30, 0.02), 0.032, 0.05, boxstyle="round,pad=0.002,rounding_size=0.01",
-                                linewidth=1.0, edgecolor=ORANGE, facecolor="#FDF0E6"))
+                                linewidth=1.0, edgecolor=ORANGE, facecolor=FILL_ORANGE))
     ax.text(0.345, 0.045, "проверка", fontsize=9, color=INK, va="center")
     ax.text(0.47, 0.045, "· каждый прямоугольник — 5 исследований, в проверке фолда 20 из 100\n"
                          "· 10 повторов с разными разбиениями · пороги подбираются внутри обучающей части\n"
                          "· синтетические нарушения добавляются только в обучение, все метрики — на настоящих снимках",
-            fontsize=9, color="#5A6270", va="center", linespacing=1.5)
+            fontsize=9, color=MUTED, va="center", linespacing=1.5)
     save(fig, "split")
 
 
@@ -518,7 +520,7 @@ def metrics_ci(report):
         ax.set_xlim(0.55, 1.0); ax.set_ylim(len(labels) - 0.5, -0.75)
         ax.set_title(title, fontsize=12, color=INK)
         ax.spines[["top", "right"]].set_visible(False)
-        ax.grid(axis="x", color="#EEEEEE", lw=0.8); ax.set_axisbelow(True)
+        ax.grid(axis="x", color=LINE, lw=0.8); ax.set_axisbelow(True)
     save(fig, "metrics_ci")
 
 
@@ -535,10 +537,10 @@ def taxonomy(report, idx):
         t = report["types"][key]
         region_color = BLUE if key.startswith("spine") else ORANGE
         box(ax, x, 0.45, 0.185, 0.34, "", color=region_color,
-            fill="#EAF0FB" if key.startswith("spine") else "#FDF0E6")
+            fill=FILL_BLUE if key.startswith("spine") else FILL_ORANGE)
         ax.text(x + 0.0925, 0.72, TYPE_RU[key], ha="center", va="center", fontsize=10, fontweight="bold",
                 color=INK, linespacing=1.3)
-        ax.text(x + 0.0925, 0.615, CRITERION[key], ha="center", va="center", fontsize=8.6, color="#5A6270")
+        ax.text(x + 0.0925, 0.615, CRITERION[key], ha="center", va="center", fontsize=8.6, color=MUTED)
         ax.text(x + 0.0925, 0.535, f"AUC {t['auc']:.2f} · F1 {t['f1']:.2f}\n{t['n_pos']} нарушений",
                 ha="center", va="center", fontsize=8.8, color=INK, linespacing=1.4)
 
@@ -552,7 +554,7 @@ def taxonomy(report, idx):
             f"Снимок помечается некачественным, если сработал хотя бы один тип — поэтому у каждой пометки\n"
             f"названа причина, а в отчёте их может быть несколько через «; ». В обучающей выборке таких снимков {both}.\n"
             f"Альтернативу (один порог на общую вероятность) проверили и отклонили: хуже по всем метрикам ТЗ сразу.",
-            ha="center", fontsize=9.6, color="#5A6270", linespacing=1.6)
+            ha="center", fontsize=9.6, color=MUTED, linespacing=1.6)
     save(fig, "taxonomy")
 
 
@@ -572,10 +574,10 @@ def errors(oof):
     ax.set_yticks(y); ax.set_yticklabels(names, fontsize=10); ax.invert_yaxis()
     ax.set_title("Анализ ошибок по типам нарушений (вне обучающих фолдов)", fontsize=12.5,
                  fontweight="bold", color=INK, pad=26)
-    ax.set_xlabel("число снимков", fontsize=9.5, color="#5A6270")
+    ax.set_xlabel("число снимков", fontsize=9.5, color=MUTED)
     ax.legend(frameon=False, fontsize=9.5, loc="upper right", bbox_to_anchor=(1.0, 1.12), ncol=2)
     ax.spines[["top", "right"]].set_visible(False)
-    ax.grid(axis="x", color="#EEEEEE", lw=0.8); ax.set_axisbelow(True)
+    ax.grid(axis="x", color=LINE, lw=0.8); ax.set_axisbelow(True)
     save(fig, "errors")
 
 

@@ -8,6 +8,8 @@ Usage: python scripts/figures.py   (after train_keypoints.py, eval_pipeline.py, 
 import json
 from pathlib import Path
 
+import sys
+
 import matplotlib
 import numpy as np
 import pandas as pd
@@ -16,11 +18,12 @@ matplotlib.use("Agg")
 import matplotlib.pyplot as plt  # noqa: E402
 from sklearn.metrics import roc_curve  # noqa: E402
 
+sys.path.insert(0, str(Path(__file__).parent))
 OUT = Path("docs/figures")
 # какие результаты рисуем: суффиксы файлов pipeline_eval / pipeline_oof и kp_oof_<region>
 EVAL = __import__("os").environ.get("DXAQC_FIG_EVAL", "_axis24")
 KP = __import__("os").environ.get("DXAQC_FIG_KP", "_ens3")
-BLUE, ORANGE, GREY = "#4C7BD9", "#E8833A", "#9AA0A6"
+from palette import BLUE, GREY, ORANGE  # noqa: E402  единая палитра, см. scripts/palette.py
 NAMES = {"col_top": "Столб, верх", "col_bottom": "Столб, уровень таза", "crest_a": "Крыло таза слева",
          "crest_b": "Крыло таза справа", "fh_c": "Центр головки", "fh_top": "Верх головки",
          "fn_c": "Шейка", "gt_top": "Большой вертел, верх", "gt_lat": "Большой вертел, край",

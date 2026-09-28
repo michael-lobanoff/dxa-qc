@@ -13,7 +13,7 @@
   slide18_robustness.png устойчивость: вывод прогона архива и три факта
 """
 import argparse
-import json
+import sys
 from pathlib import Path
 
 import cv2
@@ -26,7 +26,10 @@ matplotlib.use("Agg")
 import matplotlib.pyplot as plt  # noqa: E402
 from matplotlib.patches import FancyBboxPatch  # noqa: E402
 
-INK, MUTED, BLUE, GREEN, RED, ORANGE = "#1B1D21", "#5A6270", "#4C7BD9", "#2E9E5B", "#C2413A", "#E8833A"
+sys.path.insert(0, str(Path(__file__).parent))
+from palette import BLUE, FILL_BLUE, GREEN, INK, MUTED, RED  # noqa: E402
+from palette import GREY as GREY_LINE  # noqa: E402
+from palette import rgb as to_bgr  # noqa: E402
 STRAIGHT, TILTED = "094_spine", "028_spine"          # выбраны по data/train/axis_features.csv
 BROKEN_HIP = "069_hip_left"                          # бедро попало в кадр частично
 SAMPLE_SPINE = "data/test_sample/CR000000_ПОП.dcm"   # снимок с косточкой белья
@@ -78,30 +81,30 @@ def slide2(out):
     svc = QCService("models")
     fig, ax = canvas("Одна и та же анатомия — разный результат измерения",
                      "плотность считается внутри областей, размеченных на снимке: перекос кадра сдвигает саму цифру")
-    for k, (i, label, color, bgr) in enumerate([(STRAIGHT, "корректная укладка", GREEN, (90, 209, 122)),
-                                                (TILTED, "ось завалена", RED, (255, 90, 90))]):
+    for k, (i, label, color, bgr) in enumerate([(STRAIGHT, "корректная укладка", GREEN, to_bgr(GREEN)),
+                                                (TILTED, "ось завалена", RED, to_bgr(RED))]):
         img = annotation_image(i)
         r = svc.analyse(img, (0.6, 0.606))
         t, b = r["points"]["col_top"], r["points"]["col_bottom"]
         tilt = abs(r["measurements"]["tilt_deg"])
         h, w = img.shape
-        rgb = cv2.cvtColor(img, cv2.COLOR_GRAY2RGB)
+        vis = cv2.cvtColor(img, cv2.COLOR_GRAY2RGB)
 
         # вертикаль кадра — через нижнюю точку оси, пунктиром
         for y in range(0, h, 10):
-            cv2.line(rgb, (int(b[0]), y), (int(b[0]), min(y + 5, h - 1)), (170, 170, 170), 1, cv2.LINE_AA)
+            cv2.line(vis, (int(b[0]), y), (int(b[0]), min(y + 5, h - 1)), to_bgr(GREY_LINE), 1, cv2.LINE_AA)
         # сама ось: прямая через col_top и col_bottom, продлённая на весь кадр
         dy = (b[1] - t[1]) or 1
         slope = (b[0] - t[0]) / dy
         p_top = (int(round(t[0] - slope * t[1])), 0)
         p_bot = (int(round(b[0] + slope * (h - 1 - b[1]))), h - 1)
-        cv2.line(rgb, p_top, p_bot, bgr, 2, cv2.LINE_AA)
+        cv2.line(vis, p_top, p_bot, bgr, 2, cv2.LINE_AA)
         for key in ("crest_a", "crest_b"):                      # уровень таза, от него отсчитывается ось
             c = r["points"].get(key)
             if c:
-                cv2.circle(rgb, (int(c[0]), int(c[1])), 5, (90, 209, 122), 2, cv2.LINE_AA)
+                cv2.circle(vis, (int(c[0]), int(c[1])), 5, to_bgr(GREEN), 2, cv2.LINE_AA)
 
-        put(ax, rgb, 0.08 + k * 0.46, 0.20, 0.38, 0.65)
+        put(ax, vis, 0.08 + k * 0.46, 0.20, 0.38, 0.65)
         ax.text(0.27 + k * 0.46, 0.145, label, ha="center", fontsize=14, fontweight="bold", color=color)
         ax.text(0.27 + k * 0.46, 0.095, f"ось отклонена на {tilt:.1f}° при допуске 5° по ТЗ",
                 ha="center", fontsize=11, color=MUTED)
@@ -200,7 +203,7 @@ def slide18(out, results=None):
     for k, (num, cap) in enumerate(facts):
         x = 0.06 + k * 0.30
         ax.add_patch(FancyBboxPatch((x, 0.13), 0.28, 0.21, boxstyle="round,pad=0.01,rounding_size=0.02",
-                                    linewidth=1.3, edgecolor=BLUE, facecolor="#EAF0FB"))
+                                    linewidth=1.3, edgecolor=BLUE, facecolor=FILL_BLUE))
         ax.text(x + 0.14, 0.275, num, ha="center", fontsize=20, fontweight="bold", color=BLUE)
         ax.text(x + 0.14, 0.19, cap, ha="center", va="center", fontsize=10.5, color=MUTED, linespacing=1.4)
     ax.text(0.5, 0.055, "необработанных исключений нет: любая ошибка становится строкой отчёта со статусом Failure",
