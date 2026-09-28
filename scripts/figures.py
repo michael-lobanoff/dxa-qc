@@ -23,7 +23,7 @@ OUT = Path("docs/figures")
 # какие результаты рисуем: суффиксы файлов pipeline_eval / pipeline_oof и kp_oof_<region>
 EVAL = __import__("os").environ.get("DXAQC_FIG_EVAL", "_axis24")
 KP = __import__("os").environ.get("DXAQC_FIG_KP", "_ens3")
-from palette import BLUE, GREY, ORANGE  # noqa: E402  единая палитра, см. scripts/palette.py
+from palette import BLUE, GREY, INK, LINE, MUTED, ORANGE, SURFACE  # noqa: E402  см. scripts/palette.py
 NAMES = {"col_top": "Столб, верх", "col_bottom": "Столб, уровень таза", "crest_a": "Крыло таза слева",
          "crest_b": "Крыло таза справа", "fh_c": "Центр головки", "fh_top": "Верх головки",
          "fn_c": "Шейка", "gt_top": "Большой вертел, верх", "gt_lat": "Большой вертел, край",
@@ -33,9 +33,28 @@ TYPE_RU = {"spine:v_axis": "Наклон оси", "spine:v_pos": "Укладка
            "hip:v_roi": "Поля кадра бедра", "hip:v_posrot": "Ротация бедра"}
 
 
+def paint(fig):
+    """Фон, оси и подписи под тему (scripts/palette.py)."""
+    fig.patch.set_facecolor(SURFACE)
+    for a in fig.axes:
+        a.set_facecolor(SURFACE)
+        a.tick_params(colors=MUTED)
+        a.title.set_color(INK)
+        a.xaxis.label.set_color(MUTED); a.yaxis.label.set_color(MUTED)
+        for t in a.get_xticklabels() + a.get_yticklabels():
+            t.set_color(MUTED)
+        for sp in a.spines.values():
+            sp.set_color(LINE)
+        leg = a.get_legend()
+        if leg:
+            leg.get_frame().set_facecolor(SURFACE)
+            for txt in leg.get_texts():
+                txt.set_color(MUTED)
+
+
 def style(ax):
     ax.spines[["top", "right"]].set_visible(False)
-    ax.grid(axis="x", color="#E6E6E6", lw=0.8)
+    ax.grid(axis="x", color=LINE, lw=0.8)
     ax.set_axisbelow(True)
 
 
@@ -73,7 +92,8 @@ def detector_errors():
     ax.legend(frameon=False, loc="lower right")
     style(ax)
     fig.tight_layout()
-    fig.savefig(OUT / "detector_errors.png", dpi=150)
+    paint(fig)
+    fig.savefig(OUT / "detector_errors.png", dpi=150, facecolor=SURFACE)
     plt.close(fig)
 
 
@@ -84,7 +104,7 @@ def roc_regions():
     fig, ax = plt.subplots(figsize=(6.4, 6))
     for name, sub, c in (("Позвоночник", df[df.id.str.endswith("spine")], BLUE),
                          ("Бёдра", df[df.id.str.contains("hip")], ORANGE),
-                         ("Всего", df, "#3A3A3A")):
+                         ("Всего", df, INK)):
         fpr, tpr, _ = roc_curve(sub.y.astype(int), sub.score)
         key = {"Позвоночник": "spine", "Бёдра": "hip", "Всего": "overall"}[name]
         auc, ci = rep["regions"][key]["auc"]
@@ -98,9 +118,10 @@ def roc_regions():
     ax.plot([], [], "o", color=GREY, mfc="white", mew=2, label="рабочая точка (screening)")
     ax.legend(frameon=False, loc="lower right", fontsize=9)
     style(ax)
-    ax.grid(color="#E6E6E6", lw=0.8)
+    ax.grid(color=LINE, lw=0.8)
     fig.tight_layout()
-    fig.savefig(OUT / "roc_regions.png", dpi=150)
+    paint(fig)
+    fig.savefig(OUT / "roc_regions.png", dpi=150, facecolor=SURFACE)
     plt.close(fig)
 
 
@@ -120,7 +141,8 @@ def auc_by_type():
     ax.set_title("Точность по типам нарушений")
     style(ax)
     fig.tight_layout()
-    fig.savefig(OUT / "auc_by_type.png", dpi=150)
+    paint(fig)
+    fig.savefig(OUT / "auc_by_type.png", dpi=150, facecolor=SURFACE)
     plt.close(fig)
 
 
@@ -141,7 +163,8 @@ def rotation_approaches():
     ax.set_title("Ротация бедра: что пробовали")
     style(ax)
     fig.tight_layout()
-    fig.savefig(OUT / "rotation_approaches.png", dpi=150)
+    paint(fig)
+    fig.savefig(OUT / "rotation_approaches.png", dpi=150, facecolor=SURFACE)
     plt.close(fig)
 
 

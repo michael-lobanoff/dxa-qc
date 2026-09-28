@@ -27,7 +27,7 @@ import matplotlib.pyplot as plt  # noqa: E402
 from matplotlib.patches import FancyBboxPatch  # noqa: E402
 
 sys.path.insert(0, str(Path(__file__).parent))
-from palette import BLUE, FILL_BLUE, GREEN, INK, MUTED, RED  # noqa: E402
+from palette import BLUE, FILL_BLUE, GREEN, INK, LINE, MUTED, PANEL, RED, SURFACE  # noqa: E402
 from palette import GREY as GREY_LINE  # noqa: E402
 from palette import rgb as to_bgr  # noqa: E402
 STRAIGHT, TILTED = "094_spine", "028_spine"          # выбраны по data/train/axis_features.csv
@@ -65,7 +65,10 @@ def put(ax, img, x, y, w, h):
 def save(fig, out, name):
     path = Path(out) / name
     path.parent.mkdir(parents=True, exist_ok=True)
-    fig.savefig(path, dpi=170, bbox_inches="tight", facecolor="white")
+    fig.patch.set_facecolor(SURFACE)
+    for a in fig.axes:
+        a.set_facecolor(SURFACE)
+    fig.savefig(path, dpi=170, bbox_inches="tight", facecolor=SURFACE)
     plt.close(fig)
     print(path)
 
@@ -193,10 +196,10 @@ def slide18(out, results=None):
              "$ .venv/bin/python -m pytest -q tests",
              "28 passed"]
     ax.add_patch(FancyBboxPatch((0.06, 0.42), 0.88, 0.37, boxstyle="round,pad=0.012,rounding_size=0.02",
-                                linewidth=1.2, edgecolor="#2C3039", facecolor="#14161A"))
+                                linewidth=1.2, edgecolor=LINE, facecolor="#0B000F"))
     for k, line in enumerate(lines):
         ax.text(0.09, 0.735 - k * 0.045, line, ha="left", va="center", fontsize=11.5,
-                family="monospace", color="#9AA0A6" if line.startswith("$") else "#E9EAEC")
+                family="monospace", color=MUTED if line.startswith("$") else INK)
     facts = [("499 / 499", "файлов архива обработано,\nошибок ноль"),
              ("499 / 499", "совпадение контейнера\nи хоста по вердикту и типам"),
              ("28", "тестов, включая чтение\nсжатых DICOM")]

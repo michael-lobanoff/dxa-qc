@@ -21,7 +21,7 @@ from matplotlib.patches import FancyArrowPatch, FancyBboxPatch  # noqa: E402
 OUT = Path("docs/figures")
 sys.path.insert(0, str(Path(__file__).parent))
 from palette import (BLUE, FILL_BLUE, FILL_GREEN, FILL_ORANGE, GREEN, GREY,  # noqa: E402
-                     INK, LINE, MUTED, ORANGE, RED)
+                     INK, LINE, MUTED, ORANGE, PANEL, RED, SURFACE)
 TYPE_RU = {"spine:v_axis": "Наклон оси\nпозвоночника", "spine:v_pos": "Некорректная\nукладка",
            "spine:v_artifact": "Посторонние\nпредметы", "hip:v_roi": "Некорректная\nобласть интереса",
            "hip:v_posrot": "Ротация и укладка\nбедра"}
@@ -31,7 +31,12 @@ CRITERION = {"spine:v_axis": "угол оси > 5°", "spine:v_pos": "гребн
 
 
 def save(fig, name):
-    fig.savefig(OUT / f"{name}.png", dpi=170, bbox_inches="tight", facecolor="white")
+    for a in fig.axes:
+        a.set_facecolor(SURFACE)
+        a.tick_params(colors=MUTED)
+        for sp in a.spines.values():
+            sp.set_color(LINE)
+    fig.savefig(OUT / f"{name}.png", dpi=170, bbox_inches="tight", facecolor=SURFACE)
     plt.close(fig)
     print(f"docs/figures/{name}.png")
 
@@ -92,7 +97,7 @@ def ml_architecture():
             ha="center", fontsize=9.5, color=MUTED, style="italic")
 
     # ---------- 1. область
-    box(ax, 0.01, 0.745, 0.24, 0.135, "", color=GREY, fill="#F5F6F7")
+    box(ax, 0.01, 0.745, 0.24, 0.135, "", color=GREY, fill=PANEL)
     ax.text(0.13, 0.852, "1 · Область и «свой/чужой»", ha="center", fontsize=9.8, fontweight="bold", color=INK)
     ax.text(0.13, 0.795, "снимок → 128×128 → HOG\n(ячейка 16, 9 ориентаций)\n"
                          "→ логистическая регрессия → 3 класса\n"
@@ -159,7 +164,7 @@ def ml_architecture():
 
     # ---------- 3, 4, 5
     y, h = 0.278, 0.252
-    box(ax, 0.01, y, 0.30, h, "", color=GREY, fill="#F5F6F7")
+    box(ax, 0.01, y, 0.30, h, "", color=GREY, fill=PANEL)
     ax.text(0.16, 0.508, "3 · Сегментация металла", ha="center", fontsize=10, fontweight="bold", color=INK)
     ax.text(0.16, 0.392, "та же U-Net, один выходной канал → маска\n\n"
                          "обучение: обведённые инородные тела\nна 23 снимках + синтетические косточки\n"
@@ -167,14 +172,14 @@ def ml_architecture():
                          "даёт и контур для врача, и площадь\nкак признак для решения",
             ha="center", va="center", fontsize=8.2, color=MUTED, linespacing=1.5)
 
-    box(ax, 0.345, y, 0.30, h, "", color=GREY, fill="#F5F6F7")
+    box(ax, 0.345, y, 0.30, h, "", color=GREY, fill=PANEL)
     ax.text(0.495, 0.508, "4 · Ротация и укладка бедра", ha="center", fontsize=10, fontweight="bold", color=INK)
     ax.text(0.495, 0.392, "кроп 128×128, выровненный по оси диафиза\n(ось прослеживается по кости, не по точкам)\n\n"
                           "→ HOG → ExtraTrees: 800 деревьев,\nmin_samples_leaf 3, max_features 0.2\n\n"
                           "обучение на кропах ручной разметки\nи всех членов ансамбля; смешивание\nсо вторым бедром, вес 0.2",
             ha="center", va="center", fontsize=8.2, color=MUTED, linespacing=1.45)
 
-    box(ax, 0.68, y, 0.31, h, "", color=GREY, fill="#F5F6F7")
+    box(ax, 0.68, y, 0.31, h, "", color=GREY, fill=PANEL)
     ax.text(0.835, 0.508, "5 · Пять решающих моделей", ha="center", fontsize=10, fontweight="bold", color=INK)
     ax.text(0.835, 0.392, "по 1–3 измерения на тип нарушения\n\n"
                           "веса обрезаны снизу нулём: «ровнее»\nне может оказаться «хуже»\n\n"
@@ -574,8 +579,9 @@ def errors(oof):
     ax.set_yticks(y); ax.set_yticklabels(names, fontsize=10); ax.invert_yaxis()
     ax.set_title("Анализ ошибок по типам нарушений (вне обучающих фолдов)", fontsize=12.5,
                  fontweight="bold", color=INK, pad=26)
-    ax.set_xlabel("число снимков", fontsize=9.5, color=MUTED)
-    ax.legend(frameon=False, fontsize=9.5, loc="upper right", bbox_to_anchor=(1.0, 1.12), ncol=2)
+    ax.set_xlabel("число снимков", fontsize=9.5, color=MUTED, labelpad=2)
+    ax.legend(frameon=False, fontsize=10, loc="upper center", bbox_to_anchor=(0.5, -0.16), ncol=2,
+              labelcolor=MUTED)
     ax.spines[["top", "right"]].set_visible(False)
     ax.grid(axis="x", color=LINE, lw=0.8); ax.set_axisbelow(True)
     save(fig, "errors")
