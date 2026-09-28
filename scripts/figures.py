@@ -17,6 +17,9 @@ import matplotlib.pyplot as plt  # noqa: E402
 from sklearn.metrics import roc_curve  # noqa: E402
 
 OUT = Path("docs/figures")
+# какие результаты рисуем: суффиксы файлов pipeline_eval / pipeline_oof и kp_oof_<region>
+EVAL = __import__("os").environ.get("DXAQC_FIG_EVAL", "_axis24")
+KP = __import__("os").environ.get("DXAQC_FIG_KP", "_ens3")
 BLUE, ORANGE, GREY = "#4C7BD9", "#E8833A", "#9AA0A6"
 NAMES = {"col_top": "Столб, верх", "col_bottom": "Столб, уровень таза", "crest_a": "Крыло таза слева",
          "crest_b": "Крыло таза справа", "fh_c": "Центр головки", "fh_top": "Верх головки",
@@ -39,8 +42,8 @@ def detector_errors():
     idx["id"] = idx.n.map("{:03d}".format) + "_" + idx.region
     idx = idx.set_index("id")
     kp = json.loads(Path("data/train/keypoints.json").read_text())
-    oof = {**json.loads(Path("data/train/kp_oof_spine.json").read_text()),
-           **json.loads(Path("data/train/kp_oof_hip.json").read_text())}
+    oof = {**json.loads(Path(f"data/train/kp_oof_spine{KP}.json").read_text()),
+           **json.loads(Path(f"data/train/kp_oof_hip{KP}.json").read_text())}
     rows = []
     for i, d in oof.items():
         mm = float(idx.loc[i, "mm_per_px_y"])       # pixel size of that image (DICOM tag)
@@ -73,8 +76,8 @@ def detector_errors():
 
 def roc_regions():
     """ROC of the image verdict score, per region, from the honest out-of-fold run."""
-    df = pd.read_csv("data/train/pipeline_oof.csv")
-    rep = json.loads(Path("data/train/pipeline_eval.json").read_text())
+    df = pd.read_csv(f"data/train/pipeline_oof{EVAL}.csv")
+    rep = json.loads(Path(f"data/train/pipeline_eval{EVAL}.json").read_text())
     fig, ax = plt.subplots(figsize=(6.4, 6))
     for name, sub, c in (("Позвоночник", df[df.id.str.endswith("spine")], BLUE),
                          ("Бёдра", df[df.id.str.contains("hip")], ORANGE),
@@ -99,7 +102,7 @@ def roc_regions():
 
 
 def auc_by_type():
-    rep = json.loads(Path("data/train/pipeline_eval.json").read_text())["types"]
+    rep = json.loads(Path(f"data/train/pipeline_eval{EVAL}.json").read_text())["types"]
     items = sorted(rep.items(), key=lambda kv: kv[1]["auc"])
     fig, ax = plt.subplots(figsize=(8, 4.2))
     y = np.arange(len(items))
