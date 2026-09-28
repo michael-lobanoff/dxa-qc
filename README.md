@@ -112,6 +112,7 @@ AUC при одинаковой ошибке точек), а ансамбль и
 | [docs/deployment.md](docs/deployment.md) | развёртывание: сборка образа, переменные окружения, безопасность, типовые проблемы |
 | [docs/training.md](docs/training.md) | обучение и дообучение моделей на новых данных |
 | [docs/pitch_script.md](docs/pitch_script.md) | защита: логика рассказа, текст по слайдам, какая картинка куда |
+| [docs/pitch_concept.md](docs/pitch_concept.md) | концепт технической части презентации: что на каждом слайде |
 | [docs/medical_brief.md](docs/medical_brief.md) | что такое денситометрия, что она меряет и почему укладка решает |
 | [docs/data_requests.md](docs/data_requests.md) | поиск внешних данных: что нашли, письма для запроса |
 | [docs/night_report.md](docs/night_report.md) | отчёт по экспериментам: что пробовали, что сработало, что нет |
