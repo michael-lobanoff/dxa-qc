@@ -18,3 +18,9 @@ logs/
 .claude/
 .idea/
 .vscode/
+
+# Презентация и её графика — материалы команды, в репозиторий не выкладываем
+docs/figures/
+docs/pitch_script.md
+docs/pitch_concept.md
+docs/*.docx

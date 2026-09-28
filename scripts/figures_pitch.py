@@ -20,8 +20,8 @@ from matplotlib.patches import FancyArrowPatch, FancyBboxPatch  # noqa: E402
 
 OUT = Path("docs/figures")
 sys.path.insert(0, str(Path(__file__).parent))
-from palette import (BLUE, FILL_BLUE, FILL_GREEN, FILL_ORANGE, GREEN, GREY,  # noqa: E402
-                     INK, LINE, MUTED, ORANGE, PANEL, RED, SURFACE)
+from palette import (BLUE, FILL_BLUE, FILL_ORANGE, GREY, INK, LINE,  # noqa: E402
+                     MUTED, NEUTRAL, ORANGE, PANEL, RED, SURFACE)
 TYPE_RU = {"spine:v_axis": "Наклон оси\nпозвоночника", "spine:v_pos": "Некорректная\nукладка",
            "spine:v_artifact": "Посторонние\nпредметы", "hip:v_roi": "Некорректная\nобласть интереса",
            "hip:v_posrot": "Ротация и укладка\nбедра"}
@@ -57,7 +57,7 @@ def arrow(ax, x1, y1, x2, y2, color=GREY):
 def architecture():
     fig, ax = plt.subplots(figsize=(12.5, 5.6))
     ax.set_xlim(0, 1); ax.set_ylim(0, 1); ax.axis("off")
-    ax.text(0.5, 0.96, "Как устроен сервис: от DICOM до строки отчёта", ha="center", fontsize=14,
+    ax.text(0.5, 0.90, "Как устроен сервис: от DICOM до строки отчёта", ha="center", fontsize=14,
             fontweight="bold", color=INK)
 
     steps = [("DICOM\nна входе", "чтение пикселей,\nMONOCHROME1, 16 бит,\nсжатые синтаксисы"),
@@ -65,7 +65,7 @@ def architecture():
              ("Ключевые точки", "ансамбль из трёх U-Net\n4 точки / 9 точек"),
              ("Измерения", "градусы и миллиметры\nпо критериям ТЗ"),
              ("Решения\nпо типам", "5 моделей,\nсвой порог у каждой")]
-    w, h, y = 0.175, 0.26, 0.5
+    w, h, y = 0.175, 0.26, 0.535
     for k, (title, sub) in enumerate(steps):
         x = 0.01 + k * 0.2
         box(ax, x, y, w, h, f"{title}\n\n", color=BLUE, bold=True, fontsize=10.5)
@@ -73,12 +73,12 @@ def architecture():
         if k:
             arrow(ax, x - 0.025, y + h / 2, x, y + h / 2)
 
-    ax.text(0.5, 0.42, "↓", ha="center", fontsize=15, color=GREY)
+    ax.text(0.5, 0.445, "↓", ha="center", fontsize=15, color=GREY)
     outs = [("Таблица CSV / XLSX", "формат ТЗ 2.5"), ("Снимок с подсветкой", "PNG + DICOM SC"),
             ("Текстовый отчёт", "DICOM Basic Text SR"), ("Веб-интерфейс и API", "FastAPI, Swagger")]
     for k, (title, sub) in enumerate(outs):
         x = 0.03 + k * 0.245
-        box(ax, x, 0.16, 0.205, 0.2, f"{title}\n", color=GREEN, fill=FILL_GREEN, fontsize=9.5, bold=True)
+        box(ax, x, 0.16, 0.205, 0.2, f"{title}\n", color=ORANGE, fill=FILL_ORANGE, fontsize=9.5, bold=True)
         ax.text(x + 0.1, 0.205, sub, ha="center", va="center", fontsize=8, color=MUTED)
 
     ax.text(0.5, 0.06, "Всё локально, в одном docker-образе: ни одного обращения за пределы машины",
@@ -105,7 +105,7 @@ def ml_architecture():
             ha="center", va="center", fontsize=8.2, color=MUTED, linespacing=1.5)
 
     # ---------- 2. U-Net
-    ax.text(0.63, 0.893, "2 · Сеть ключевых точек — U-Net, 4.86 млн параметров", ha="center",
+    ax.text(0.63, 0.921, "2 · Сеть ключевых точек — U-Net, 4.86 млн параметров", ha="center",
             fontsize=10.5, fontweight="bold", color=INK)
     box(ax, 0.265, 0.738, 0.075, 0.10, "вход\n1 × 256 × 256\n+ 2 канала\nкоординат", color=BLUE,
         fill=FILL_BLUE, fontsize=8.0)
@@ -128,7 +128,7 @@ def ml_architecture():
         h = 0.145 * (0.565 + k * 0.145)
         x = dx + k * gap
         ax.add_patch(FancyBboxPatch((x, top - h), w, h, boxstyle="round,pad=0.004,rounding_size=0.012",
-                                    linewidth=1.3, edgecolor=GREEN, facecolor=FILL_GREEN))
+                                    linewidth=1.3, edgecolor=ORANGE, facecolor=FILL_ORANGE))
         ax.text(x + w / 2, top - h / 2 + 0.012, str(ch), ha="center", va="center", fontsize=9.5,
                 color=INK, fontweight="bold")
         ax.text(x + w / 2, top - h / 2 - 0.015, size, ha="center", va="center", fontsize=7.6, color=MUTED)
@@ -143,15 +143,15 @@ def ml_architecture():
         xd = dx + k * gap + w / 2
         ax.annotate("", xy=(xd, top + 0.004), xytext=(xs, top + 0.004),
                     arrowprops=dict(arrowstyle="-", color=GREY, lw=0.9, ls=(0, (3, 2)),
-                                    connectionstyle="arc3,rad=-0.22"))
+                                    connectionstyle="arc3,rad=-0.16"))
     ax.text(0.30, top + 0.052, "skip-связи", ha="center", fontsize=8.2, color=GREY)
 
-    box(ax, 0.865, 0.762, 0.125, 0.062, "тепловые карты\nK × 128 × 128", color=GREEN, fill=FILL_GREEN, fontsize=8.5)
-    box(ax, 0.865, 0.652, 0.125, 0.062, "логиты «точка\nв кадре», K", color=ORANGE, fill=FILL_ORANGE, fontsize=8.5)
+    box(ax, 0.865, 0.762, 0.125, 0.062, "тепловые карты\nK × 128 × 128", color=ORANGE, fill=FILL_ORANGE, fontsize=8.5)
+    box(ax, 0.865, 0.652, 0.125, 0.062, "логиты «точка\nв кадре», K", color=BLUE, fill=FILL_BLUE, fontsize=8.5)
     arrow(ax, dx + 2 * gap + w + 0.004, 0.793, 0.863, 0.793)
     xb = ex + 4 * gap + w / 2
     ax.annotate("", xy=(0.863, 0.683), xytext=(xb, 0.706),
-                arrowprops=dict(arrowstyle="-|>", color=ORANGE, lw=1.2, connectionstyle="angle,angleA=-90,angleB=0,rad=6"))
+                arrowprops=dict(arrowstyle="-|>", color=BLUE, lw=1.2, connectionstyle="angle,angleA=-90,angleB=0,rad=6"))
     ax.text(0.60, 0.645, "вторая голова — из бутылочного горлышка: глобальный пулинг → линейный слой",
             ha="center", fontsize=8.1, color=MUTED)
 
@@ -274,7 +274,7 @@ def model2_keypoints():
     for k, (size, ch) in enumerate(dec):
         h = 0.20 * (0.565 + k * 0.145); x = dx + k * gap
         ax.add_patch(FancyBboxPatch((x, top - h), w, h, boxstyle="round,pad=0.004,rounding_size=0.012",
-                                    linewidth=1.5, edgecolor=GREEN, facecolor=FILL_GREEN))
+                                    linewidth=1.5, edgecolor=ORANGE, facecolor=FILL_ORANGE))
         ax.text(x + w / 2, top - h / 2 + 0.018, str(ch), ha="center", va="center", fontsize=12,
                 color=INK, fontweight="bold")
         ax.text(x + w / 2, top - h / 2 - 0.018, size, ha="center", va="center", fontsize=9, color=MUTED)
@@ -291,12 +291,12 @@ def model2_keypoints():
     box(ax, 0.035, 0.63, 0.155, 0.135, "вход\n1 × 256 × 256\n+ 2 канала координат", color=BLUE,
         fill=FILL_BLUE, fontsize=10.5)
     arrow(ax, 0.192, 0.695, 0.232, 0.695)
-    box(ax, 0.815, 0.66, 0.16, 0.10, "тепловые карты\nK × 128 × 128", color=GREEN, fill=FILL_GREEN, fontsize=11)
-    box(ax, 0.815, 0.515, 0.16, 0.10, "логиты\n«точка в кадре»", color=ORANGE, fill=FILL_ORANGE, fontsize=11)
+    box(ax, 0.815, 0.66, 0.16, 0.10, "тепловые карты\nK × 128 × 128", color=ORANGE, fill=FILL_ORANGE, fontsize=11)
+    box(ax, 0.815, 0.515, 0.16, 0.10, "логиты\n«точка в кадре»", color=BLUE, fill=FILL_BLUE, fontsize=11)
     arrow(ax, dx + 2 * gap + w + 0.004, 0.71, 0.813, 0.71)
     xb = ex + 4 * gap + w / 2
     ax.annotate("", xy=(0.813, 0.565), xytext=(xb, 0.59),
-                arrowprops=dict(arrowstyle="-|>", color=ORANGE, lw=1.3,
+                arrowprops=dict(arrowstyle="-|>", color=BLUE, lw=1.3,
                                 connectionstyle="angle,angleA=-90,angleB=0,rad=8"))
     ax.text(0.53, 0.525, "глобальный пулинг → линейный слой", ha="center", fontsize=10, color=MUTED)
 
@@ -323,8 +323,8 @@ def model3_segmentation():
              ("Два результата", "контур на картинке\nи площадь в модель")]
     for k, (t, sub) in enumerate(steps):
         x = 0.04 + k * 0.245
-        box(ax, x, 0.60, 0.20, 0.17, "", color=BLUE if k < 3 else GREEN,
-            fill=FILL_BLUE if k < 3 else FILL_GREEN)
+        box(ax, x, 0.60, 0.20, 0.17, "", color=BLUE if k < 3 else ORANGE,
+            fill=FILL_BLUE if k < 3 else FILL_ORANGE)
         ax.text(x + 0.10, 0.705, t, ha="center", va="center", fontsize=12.5, fontweight="bold",
                 color=INK, linespacing=1.3)
         ax.text(x + 0.10, 0.645, sub, ha="center", va="center", fontsize=10, color=MUTED, linespacing=1.35)
@@ -485,14 +485,14 @@ def split():
             is_val = k // 4 == f
             ax.add_patch(FancyBboxPatch((x, y), 0.032, 0.07, boxstyle="round,pad=0.002,rounding_size=0.01",
                                         linewidth=1.0, edgecolor=ORANGE if is_val else BLUE,
-                                        facecolor=FILL_ORANGE if is_val else FILL_BLUE))
+                                        facecolor=ORANGE if is_val else FILL_BLUE))
 
 
     ax.add_patch(FancyBboxPatch((0.14, 0.02), 0.032, 0.05, boxstyle="round,pad=0.002,rounding_size=0.01",
                                 linewidth=1.0, edgecolor=BLUE, facecolor=FILL_BLUE))
     ax.text(0.185, 0.045, "обучение", fontsize=9, color=INK, va="center")
     ax.add_patch(FancyBboxPatch((0.30, 0.02), 0.032, 0.05, boxstyle="round,pad=0.002,rounding_size=0.01",
-                                linewidth=1.0, edgecolor=ORANGE, facecolor=FILL_ORANGE))
+                                linewidth=1.0, edgecolor=ORANGE, facecolor=ORANGE))
     ax.text(0.345, 0.045, "проверка", fontsize=9, color=INK, va="center")
     ax.text(0.47, 0.045, "· каждый прямоугольник — 5 исследований, в проверке фолда 20 из 100\n"
                          "· 10 повторов с разными разбиениями · пороги подбираются внутри обучающей части\n"
@@ -533,7 +533,7 @@ def metrics_ci(report):
 def taxonomy(report, idx):
     fig, ax = plt.subplots(figsize=(12.5, 6.2))
     ax.set_xlim(0, 1); ax.set_ylim(0, 1); ax.axis("off")
-    ax.text(0.5, 0.96, "Таксономия нарушений: пять типов, каждый со своей моделью и порогом",
+    ax.text(0.5, 0.90, "Таксономия нарушений: пять типов, каждый со своей моделью и порогом",
             ha="center", fontsize=14, fontweight="bold", color=INK)
 
     keys = ["spine:v_axis", "spine:v_pos", "spine:v_artifact", "hip:v_roi", "hip:v_posrot"]
@@ -571,8 +571,10 @@ def errors(oof):
     fn = [int(((oof[t] == 1) & (oof[f"d_{t}"] == 0)).sum()) for t in types]
     fig, ax = plt.subplots(figsize=(10.5, 4.4))
     y = np.arange(len(types))
-    ax.barh(y - 0.2, fp, height=0.38, color=ORANGE, label="ложные тревоги")
-    ax.barh(y + 0.2, fn, height=0.38, color=RED, label="пропуски")
+    # оба ряда — ошибки, поэтому берём два фирменных оттенка, а не «хорошо/плохо»:
+    # пропуски дороже, им достаётся более заметный
+    ax.barh(y - 0.2, fp, height=0.38, color=BLUE, label="ложные тревоги")
+    ax.barh(y + 0.2, fn, height=0.38, color=ORANGE, label="пропуски")
     for k in y:
         ax.text(fp[k] + 0.3, k - 0.2, str(fp[k]), va="center", fontsize=9.5, color=INK)
         ax.text(fn[k] + 0.3, k + 0.2, str(fn[k]), va="center", fontsize=9.5, color=INK)

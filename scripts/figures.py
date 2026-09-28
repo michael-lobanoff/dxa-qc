@@ -23,7 +23,7 @@ OUT = Path("docs/figures")
 # какие результаты рисуем: суффиксы файлов pipeline_eval / pipeline_oof и kp_oof_<region>
 EVAL = __import__("os").environ.get("DXAQC_FIG_EVAL", "_axis24")
 KP = __import__("os").environ.get("DXAQC_FIG_KP", "_ens3")
-from palette import BLUE, GREY, INK, LINE, MUTED, ORANGE, SURFACE  # noqa: E402  см. scripts/palette.py
+from palette import BLUE, GREY, INK, LINE, MUTED, NEUTRAL, ORANGE, SURFACE  # noqa: E402  см. scripts/palette.py
 NAMES = {"col_top": "Столб, верх", "col_bottom": "Столб, уровень таза", "crest_a": "Крыло таза слева",
          "crest_b": "Крыло таза справа", "fh_c": "Центр головки", "fh_top": "Верх головки",
          "fn_c": "Шейка", "gt_top": "Большой вертел, верх", "gt_lat": "Большой вертел, край",
@@ -83,7 +83,7 @@ def detector_errors():
         c = BLUE if r.region == "spine" else ORANGE
         ax.plot([r["median"], r["p90"]], [y[k], y[k]], color=c, alpha=0.45, lw=2.5, solid_capstyle="round")
         ax.plot(r["median"], y[k], "o", color=c, ms=7)
-        ax.text(r["p90"] + 0.3, y[k], f"{r['median']:.1f} мм", va="center", fontsize=9, color="#444")
+        ax.text(r["p90"] + 0.3, y[k], f"{r['median']:.1f} мм", va="center", fontsize=9, color=INK)
     ax.set_yticks(y, [NAMES.get(p, p) for p in e.point])
     ax.set_xlabel("Ошибка, мм: точка — медиана, линия — до 90-го перцентиля")
     ax.set_title("Точность детектора ключевых точек")
@@ -102,21 +102,23 @@ def roc_regions():
     df = pd.read_csv(f"data/train/pipeline_oof{EVAL}.csv")
     rep = json.loads(Path(f"data/train/pipeline_eval{EVAL}.json").read_text())
     fig, ax = plt.subplots(figsize=(6.4, 6))
-    for name, sub, c in (("Позвоночник", df[df.id.str.endswith("spine")], BLUE),
-                         ("Бёдра", df[df.id.str.contains("hip")], ORANGE),
-                         ("Всего", df, INK)):
+    # три ряда, а в фирменной гамме различимы только два оттенка, поэтому «Всего» отделяем
+    # не цветом, а штрихом и толщиной — цвет остаётся вторым признаком, а не единственным
+    for name, sub, c, lw, ls in (("Позвоночник", df[df.id.str.endswith("spine")], BLUE, 2.0, "-"),
+                                 ("Бёдра", df[df.id.str.contains("hip")], ORANGE, 2.0, "-"),
+                                 ("Всего", df, NEUTRAL, 2.6, (0, (6, 2)))):
         fpr, tpr, _ = roc_curve(sub.y.astype(int), sub.score)
         key = {"Позвоночник": "spine", "Бёдра": "hip", "Всего": "overall"}[name]
         auc, ci = rep["regions"][key]["auc"]
-        ax.plot(fpr, tpr, color=c, lw=2, label=f"{name}: AUC {auc:.2f} [{ci[0]:.2f}–{ci[1]:.2f}]")
+        ax.plot(fpr, tpr, color=c, lw=lw, ls=ls, label=f"{name}: AUC {auc:.2f} [{ci[0]:.2f}–{ci[1]:.2f}]")
         sens, spec = rep["regions"][key]["sens"][0], rep["regions"][key]["spec"][0]
-        ax.plot(1 - spec, sens, "o", color=c, ms=9, mfc="white", mew=2)   # shipped operating point
+        ax.plot(1 - spec, sens, "o", color=c, ms=9, mfc=SURFACE, mew=2)   # shipped operating point
     ax.plot([0, 1], [0, 1], color=GREY, lw=1, ls="--")
     ax.set_xlabel("Доля ложных тревог (1 − специфичность)")
     ax.set_ylabel("Чувствительность")
     ax.set_title("Вердикт «есть нарушение качества»\n(кросс-валидация по пациентам)")
-    ax.plot([], [], "o", color=GREY, mfc="white", mew=2, label="рабочая точка (screening)")
-    ax.legend(frameon=False, loc="lower right", fontsize=9)
+    ax.plot([], [], "o", color=GREY, mfc=SURFACE, mew=2, label="рабочая точка (screening)")
+    ax.legend(frameon=False, loc="lower right", fontsize=9, labelcolor=MUTED)
     style(ax)
     ax.grid(color=LINE, lw=0.8)
     fig.tight_layout()
@@ -133,7 +135,7 @@ def auc_by_type():
     for k, (name, v) in enumerate(items):
         c = BLUE if name.startswith("spine") else ORANGE
         ax.barh(y[k], v["auc"], color=c, height=0.55)
-        ax.text(v["auc"] + 0.01, y[k], f"{v['auc']:.2f}  ({v['n_pos']} нарушений)", va="center", fontsize=9, color="#444")
+        ax.text(v["auc"] + 0.01, y[k], f"{v['auc']:.2f}  ({v['n_pos']} нарушений)", va="center", fontsize=9, color=INK)
     ax.axvline(0.5, color=GREY, lw=1, ls="--")
     ax.set_yticks(y, [TYPE_RU.get(n, n) for n, _ in items])
     ax.set_xlim(0.4, 1.12)
@@ -155,7 +157,7 @@ def rotation_approaches():
     for k, (name, v) in enumerate(vals):
         c = ORANGE if k == len(vals) - 1 else GREY
         ax.barh(y[k], v, color=c, height=0.55)
-        ax.text(v + 0.005, y[k], f"{v:.2f}", va="center", fontsize=9, color="#444")
+        ax.text(v + 0.005, y[k], f"{v:.2f}", va="center", fontsize=9, color=INK)
     ax.axvline(0.5, color=GREY, lw=1, ls="--")
     ax.set_yticks(y, [n for n, _ in vals])
     ax.set_xlim(0.45, 0.9)
