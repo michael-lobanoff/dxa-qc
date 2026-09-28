@@ -73,20 +73,34 @@ def annotation_image(i):
 
 # ------------------------------------------------------------------ слайд 2: в чём проблема
 def slide2(out):
-    feats = pd.read_csv("data/train/axis_features.csv").set_index("id")
+    """Ось рисуем ту же, что считает сервис: прямая через две точки столба, а не через центр кадра."""
+    from dxaqc.service import QCService
+    svc = QCService("models")
     fig, ax = canvas("Одна и та же анатомия — разный результат измерения",
                      "плотность считается внутри областей, размеченных на снимке: перекос кадра сдвигает саму цифру")
-    for k, (i, label, color) in enumerate([(STRAIGHT, "корректная укладка", GREEN),
-                                           (TILTED, "ось завалена", RED)]):
+    for k, (i, label, color, bgr) in enumerate([(STRAIGHT, "корректная укладка", GREEN, (90, 209, 122)),
+                                                (TILTED, "ось завалена", RED, (255, 90, 90))]):
         img = annotation_image(i)
-        rgb = cv2.cvtColor(img, cv2.COLOR_GRAY2RGB)
+        r = svc.analyse(img, (0.6, 0.606))
+        t, b = r["points"]["col_top"], r["points"]["col_bottom"]
+        tilt = abs(r["measurements"]["tilt_deg"])
         h, w = img.shape
-        tilt = float(feats.loc[i, "tilt2"])
-        cv2.line(rgb, (w // 2, 0), (w // 2, h - 1), (150, 150, 150), 1, cv2.LINE_AA)   # вертикаль кадра
-        rad = np.radians(tilt if k else 0.0)
-        top = (int(w // 2 - np.tan(rad) * h * 0.5), 0)
-        bot = (int(w // 2 + np.tan(rad) * h * 0.5), h - 1)
-        cv2.line(rgb, top, bot, (76, 123, 217) if not k else (194, 65, 58), 2, cv2.LINE_AA)
+        rgb = cv2.cvtColor(img, cv2.COLOR_GRAY2RGB)
+
+        # вертикаль кадра — через нижнюю точку оси, пунктиром
+        for y in range(0, h, 10):
+            cv2.line(rgb, (int(b[0]), y), (int(b[0]), min(y + 5, h - 1)), (170, 170, 170), 1, cv2.LINE_AA)
+        # сама ось: прямая через col_top и col_bottom, продлённая на весь кадр
+        dy = (b[1] - t[1]) or 1
+        slope = (b[0] - t[0]) / dy
+        p_top = (int(round(t[0] - slope * t[1])), 0)
+        p_bot = (int(round(b[0] + slope * (h - 1 - b[1]))), h - 1)
+        cv2.line(rgb, p_top, p_bot, bgr, 2, cv2.LINE_AA)
+        for key in ("crest_a", "crest_b"):                      # уровень таза, от него отсчитывается ось
+            c = r["points"].get(key)
+            if c:
+                cv2.circle(rgb, (int(c[0]), int(c[1])), 5, (90, 209, 122), 2, cv2.LINE_AA)
+
         put(ax, rgb, 0.08 + k * 0.46, 0.20, 0.38, 0.65)
         ax.text(0.27 + k * 0.46, 0.145, label, ha="center", fontsize=14, fontweight="bold", color=color)
         ax.text(0.27 + k * 0.46, 0.095, f"ось отклонена на {tilt:.1f}° при допуске 5° по ТЗ",
