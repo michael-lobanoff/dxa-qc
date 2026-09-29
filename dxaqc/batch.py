@@ -1,5 +1,6 @@
 """Batch processing shared by the CLI (scripts/predict.py) and the HTTP API (dxaqc/api.py)."""
 import os
+import shutil
 import tempfile
 import zipfile
 from pathlib import Path
@@ -91,6 +92,20 @@ def run_batch(root: Path, service, vis_dir=None, policy=None) -> pd.DataFrame:
         if root.suffix.lower() == ".zip":
             extract_zip(root, Path(tmp))
             root = Path(tmp)
+        elif any(p.is_file() and p.suffix.lower() == ".zip" for p in root.rglob("*")):
+            # архивы лежат вперемешку с отдельными файлами: их надо распаковать, иначе снимки
+            # внутри просто не попадут в отчёт, а строка итога скажет «0 ошибок»
+            work = Path(tmp)
+            for p in sorted(root.rglob("*")):
+                if not p.is_file():
+                    continue
+                rel = p.relative_to(root)
+                if p.suffix.lower() == ".zip":
+                    extract_zip(p, work / rel.with_suffix(""))
+                else:
+                    (work / rel).parent.mkdir(parents=True, exist_ok=True)
+                    shutil.copy2(p, work / rel)
+            root = work
         files, rows = [], []
         for p in iter_dicoms(root):
             rel = p.relative_to(root)

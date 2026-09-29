@@ -3,7 +3,7 @@
 Run:  uvicorn dxaqc.api:app --host 0.0.0.0 --port 8000
   GET  /                            web interface: upload, table of verdicts, overlay per image
   GET  /health                      models loaded, version
-  POST /predict?format=json|csv|xlsx|zip&policy=balanced|screening   multipart files: DICOM or one .zip
+  POST /predict?format=json|csv|xlsx|zip&policy=balanced|screening   multipart files: DICOM and/or .zip
   POST /analyse                     same input, JSON rows with a base64 overlay for the web interface
   POST /predict_folder              {"input": "/data", "output": "/out/results.csv", "vis": true}
                                     server-side batch over a mounted folder (paths limited to DXAQC_ALLOWED_ROOTS)

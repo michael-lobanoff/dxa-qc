@@ -44,6 +44,19 @@ def test_predict_zip_csv_and_vis():
     assert "results.csv" in names and sum(n.endswith("_qc.dcm") for n in names) == 3
 
 
+@needs_samples
+def test_predict_mixed_zip_and_loose_files():
+    """Архив вперемешку с отдельными снимками: раньше содержимое архива молча терялось."""
+    buf = io.BytesIO()
+    with zipfile.ZipFile(buf, "w") as z:
+        for p in SAMPLES:
+            z.write(p, f"study1/{p.name}")
+    files = [("files", ("batch.zip", buf.getvalue(), "application/zip")),
+             ("files", (SAMPLES[0].name, SAMPLES[0].read_bytes(), "application/dicom"))]
+    rows = client.post("/predict", files=files).json()
+    assert len(rows) == len(SAMPLES) + 1
+
+
 def test_predict_folder_rejects_outside_paths():
     assert client.post("/predict_folder", json={"input": "/etc", "output": "/tmp/x.csv"}).status_code == 403
 

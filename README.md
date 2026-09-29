@@ -215,7 +215,7 @@ python3 -m venv .venv && .venv/bin/pip install -r requirements.txt && .venv/bin/
 |---|---|
 | `GET /` | веб-интерфейс: загрузка файлов, таблица, визуализация (ТЗ 2.6) |
 | `GET /health` | статус и список загруженных моделей |
-| `POST /predict?format=json\|csv\|xlsx\|zip` | multipart `files`: DICOM-файлы или один .zip; `zip` — таблица + визуализации |
+| `POST /predict?format=json\|csv\|xlsx\|zip` | multipart `files`: DICOM-файлы и/или архивы .zip; `zip` — таблица + визуализации |
 | `POST /analyse` | то же, что `/predict`, но с картинкой в ответе — используется веб-интерфейсом |
 | `POST /predict_folder` | `{"input": "/data", "output": "/out/results.csv", "vis": true}` — пакетная обработка смонтированной папки; пути только внутри `DXAQC_ALLOWED_ROOTS` (по умолчанию `/data`, `/out`, рабочая папка) |
 
