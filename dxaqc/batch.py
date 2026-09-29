@@ -41,6 +41,25 @@ def extract_zip(path: Path, dest: Path):
                 out.write(src.read())
 
 
+def zip_top_level(path: Path):
+    """Имя единственной папки верхнего уровня в архиве, если она там одна.
+
+    Архив, собранный из папки исследования, уже несёт её имя внутри: раскрывать его ещё и в
+    папку по имени архива значит получить «исследование/исследование» в path_to_study.
+    """
+    tops = set()
+    with zipfile.ZipFile(path) as z:
+        for info in z.infolist():
+            name = _zip_name(info)
+            if info.is_dir() or "__MACOSX" in name or Path(name).name.startswith("."):
+                continue
+            parts = Path(name).parts
+            if len(parts) < 2:
+                return None
+            tops.add(parts[0])
+    return tops.pop() if len(tops) == 1 else None
+
+
 def study_folders(rows):
     """path_to_study: the deepest folder shared by all files of the same StudyInstanceUID."""
     by_study = {}
@@ -101,7 +120,8 @@ def run_batch(root: Path, service, vis_dir=None, policy=None) -> pd.DataFrame:
                     continue
                 rel = p.relative_to(root)
                 if p.suffix.lower() == ".zip":
-                    extract_zip(p, work / rel.with_suffix(""))
+                    inner = zip_top_level(p)
+                    extract_zip(p, work / rel.parent if inner else work / rel.with_suffix(""))
                 else:
                     (work / rel).parent.mkdir(parents=True, exist_ok=True)
                     shutil.copy2(p, work / rel)

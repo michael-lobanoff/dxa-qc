@@ -13,7 +13,6 @@ machine with no internet access (ТЗ 3.2: локально, без обраще
 """
 import base64
 import io
-import re
 import json
 import os
 import shutil
@@ -21,11 +20,12 @@ import tempfile
 import zipfile
 from pathlib import Path
 
+import pandas as pd
 from fastapi import FastAPI, File, HTTPException, Query, UploadFile
 from fastapi.responses import FileResponse, JSONResponse, Response
 from pydantic import BaseModel
 
-from .batch import run_batch, zip_folder
+from .batch import COLUMNS, run_batch, zip_folder, zip_top_level
 from .service import QCService
 
 MODEL_DIR = Path(os.environ.get("DXAQC_MODELS", "models"))
@@ -70,19 +70,62 @@ def health():
     return {"status": "ok", "version": app.version, "models": sorted(p.name for p in MODEL_DIR.glob("*") if p.is_file())}
 
 
+async def _store_uploads(files, root: Path) -> list[str]:
+    """Сохранить загруженное под собственными именами и вернуть их по порядку.
+
+    Имена не префиксуем служебными номерами: они попадают в path_to_study и уезжают в отчёт.
+    Совпадающие имена в одной загрузке разводим суффиксом.
+    """
+    names = []
+    used = set()
+    for k, f in enumerate(files):
+        name = Path(f.filename or "").name or f"file{k}.dcm"   # never trust client paths
+        if name in used:
+            name = f"{Path(name).stem}_{k}{Path(name).suffix}"
+        used.add(name)
+        (root / name).write_bytes(await f.read())
+        names.append(name)
+    return names
+
+
+def _with_skipped(df: pd.DataFrame, uploaded: list[str], root: Path, single_zip: bool) -> pd.DataFrame:
+    """Дописать строку про каждую загрузку, из которой не вышло ни одного снимка.
+
+    Без этого посторонний файл или пустой архив исчезают бесследно: в таблице их нет,
+    а счётчик необработанных показывает ноль.
+    """
+    produced = set(df["file"].astype(str)) if len(df) else set()
+    skipped = []
+    for name in uploaded:
+        item = Path(name)
+        if item.suffix.lower() == ".zip":
+            # папка распаковки совпадает с той, что выбрал run_batch: своя папка внутри архива,
+            # а если её нет — папка по имени архива
+            prefix = (zip_top_level(root / name) or item.stem) + "/"
+            got = bool(len(df)) if single_zip else any(f.startswith(prefix) for f in produced)
+            reason = "в архиве нет DICOM-файлов"
+        else:
+            got, reason = name in produced, "файл не читается как DICOM"
+        if not got:
+            skipped.append({"path_to_study": ".", "file": name, "processing_status": "Failure",
+                            "details": reason, "error": reason})
+    if not skipped:
+        return df
+    return pd.concat([df, pd.DataFrame(skipped, columns=COLUMNS)], ignore_index=True)
+
+
 @app.post("/predict")
 async def predict(files: list[UploadFile] = File(...), format: str = Query("json", pattern="^(json|csv|xlsx|zip)$"),
                   policy: str = Query(None, pattern="^(balanced|screening)$")):
     with tempfile.TemporaryDirectory() as tmp:
         root = Path(tmp) / "in"
         root.mkdir()
-        for k, f in enumerate(files):
-            name = Path(f.filename or f"file{k}.dcm").name or f"file{k}.dcm"  # never trust client paths
-            (root / f"{k:04d}_{name}").write_bytes(await f.read())
+        uploaded = await _store_uploads(files, root)
         items = list(root.iterdir())
-        src = items[0] if len(items) == 1 and items[0].suffix.lower() == ".zip" else root
+        single_zip = len(items) == 1 and items[0].suffix.lower() == ".zip"
+        src = items[0] if single_zip else root
         vis = Path(tmp) / "vis" if format == "zip" else None
-        df = run_batch(src, service(), vis, policy)
+        df = _with_skipped(run_batch(src, service(), vis, policy), uploaded, root, single_zip)
         if format == "json":
             return JSONResponse(json.loads(df.to_json(orient="records", force_ascii=False)))
         if format == "csv":
@@ -106,21 +149,18 @@ async def analyse(files: list[UploadFile] = File(...), policy: str = Query(None,
     with tempfile.TemporaryDirectory() as tmp:
         root = Path(tmp) / "in"
         root.mkdir()
-        names = {}
-        for k, f in enumerate(files):
-            name = Path(f.filename or f"file{k}.dcm").name or f"file{k}.dcm"
-            stored = root / f"{k:04d}_{name}"
-            stored.write_bytes(await f.read())
-            names[str(stored)] = name
+        uploaded = await _store_uploads(files, root)
         items = list(root.iterdir())
-        src = items[0] if len(items) == 1 and items[0].suffix.lower() == ".zip" else root
+        single_zip = len(items) == 1 and items[0].suffix.lower() == ".zip"
+        src = items[0] if single_zip else root
         vis = Path(tmp) / "vis"
-        df = run_batch(src, service(), vis, policy)
+        df = _with_skipped(run_batch(src, service(), vis, policy), uploaded, root, single_zip)
         rows = json.loads(df.to_json(orient="records", force_ascii=False))
-        for r in rows:                       # show the names the user uploaded, not our temp copies
-            stem = Path(str(r.get("file", ""))).name
-            r["file"] = names.get(str(r.get("file")), re.sub(r"^\d{4}_", "", stem))
-        pngs = {p.stem: p for p in vis.glob("*.png")} if vis.exists() else {}
+        for r in rows:                       # в таблице показываем имя файла, а не путь внутри архива
+            r["file"] = Path(str(r.get("file", ""))).name
+        # картинки раскладываются по подпапкам исследований, поэтому ищем рекурсивно:
+        # при плоском поиске снимки из архива оставались без подсветки и не открывались по клику
+        pngs = {p.stem: p for p in vis.rglob("*.png")} if vis.exists() else {}
         for r in rows[:MAX_OVERLAYS]:
             p = pngs.get(str(r.get("image_uid")))
             if p:

@@ -57,6 +57,36 @@ def test_predict_mixed_zip_and_loose_files():
     assert len(rows) == len(SAMPLES) + 1
 
 
+@needs_samples
+def test_analyse_overlay_for_images_from_archive():
+    """Картинки раскладываются по подпапкам исследований: снимок из архива тоже должен открываться."""
+    buf = io.BytesIO()
+    with zipfile.ZipFile(buf, "w") as z:
+        for p in SAMPLES:
+            z.write(p, f"study1/{p.name}")
+    files = [("files", ("batch.zip", buf.getvalue(), "application/zip")),
+             ("files", (SAMPLES[0].name, SAMPLES[0].read_bytes(), "application/dicom"))]
+    rows = client.post("/analyse", files=files).json()["rows"]
+    assert all(r.get("overlay") for r in rows)
+    assert not any(r["path_to_study"].startswith("0000") for r in rows)   # без служебных префиксов
+
+
+@needs_samples
+def test_unreadable_upload_is_reported_not_dropped():
+    """Посторонний файл и пустой архив должны попадать в отчёт строкой, а не исчезать."""
+    files = [("files", (SAMPLES[0].name, SAMPLES[0].read_bytes(), "application/dicom")),
+             ("files", ("readme.txt", b"hello", "text/plain"))]
+    rows = client.post("/predict", files=files).json()
+    assert len(rows) == 2
+    bad = [r for r in rows if r["file"] == "readme.txt"]
+    assert len(bad) == 1 and bad[0]["processing_status"] == "Failure"
+
+    empty = io.BytesIO()
+    zipfile.ZipFile(empty, "w").close()
+    rows = client.post("/predict", files=[("files", ("batch.zip", empty.getvalue(), "application/zip"))]).json()
+    assert len(rows) == 1 and rows[0]["processing_status"] == "Failure"
+
+
 def test_predict_folder_rejects_outside_paths():
     assert client.post("/predict_folder", json={"input": "/etc", "output": "/tmp/x.csv"}).status_code == 403
 
