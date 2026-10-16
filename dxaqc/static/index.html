@@ -8,10 +8,12 @@
   :root {
     --bg: #f6f7f9; --card: #fff; --ink: #1b1d21; --muted: #6b7280; --line: #e4e6ea;
     --ok: #14804a; --ok-bg: #e7f5ec; --bad: #b42318; --bad-bg: #fdeceb; --accent: #2f5bd0;
+    --warn: #8a5a00; --warn-bg: #fff4d6;
   }
   @media (prefers-color-scheme: dark) {
     :root { --bg:#14161a; --card:#1d2026; --ink:#e9eaec; --muted:#9aa0a6; --line:#2c3039;
-            --ok:#5bd08a; --ok-bg:#16301f; --bad:#ff8a80; --bad-bg:#3a1c1a; --accent:#7aa2ff; }
+            --ok:#5bd08a; --ok-bg:#16301f; --bad:#ff8a80; --bad-bg:#3a1c1a; --accent:#7aa2ff;
+            --warn:#f2c14e; --warn-bg:#3a3018; }
   }
   * { box-sizing: border-box; }
   body { margin: 0; background: var(--bg); color: var(--ink);
@@ -42,6 +44,11 @@
   .pill.ok { background: var(--ok-bg); color: var(--ok); }
   .pill.bad { background: var(--bad-bg); color: var(--bad); }
   .pill.skip { background: #2a2f39; color: var(--muted); }
+  .pill.warn { background: var(--warn-bg); color: var(--warn); }
+  .why { color: var(--muted); font-size: 12.5px; margin-top: 4px; line-height: 1.4; }
+  .review { color: var(--warn); }
+  #studies summary { cursor: pointer; font-weight: 600; }
+  #studies li { margin: 4px 0; }
   .muted { color: var(--muted); }
   .bar { height: 6px; border-radius: 3px; background: var(--line); width: 62px; overflow: hidden; flex: none; }
   td.prob { white-space: nowrap; }
@@ -102,11 +109,16 @@
       <div class="stat"><b id="n-fail">0</b><span>не обработано</span></div>
       <div class="stat"><b id="t-avg">0</b><span>секунд на снимок</span></div>
     </div>
+    <details id="studies" class="card hidden" open style="margin-bottom:14px">
+      <summary>Что переснять — сводка по исследованиям</summary>
+      <ul id="studies-list"></ul>
+    </details>
     <div class="card">
       <div class="row" style="margin-bottom:6px">
         <label class="muted"><input type="checkbox" id="only-bad"> только с нарушениями</label>
         <label class="muted">сортировка:
           <select id="sort">
+            <option value="priority">по приоритету проверки</option>
             <option value="file">по файлу</option>
             <option value="prob">по вероятности</option>
           </select>
@@ -206,8 +218,10 @@ function draw() {
   const bad = rows.filter(r => r.quality_class === 1).length;
   const fail = rows.filter(r => r.processing_status !== "Success").length;
   // снимок, который сервис отказался оценивать, не «качественный»: считаем его отдельно,
-  // иначе чужая модальность попадает в ту же клетку, что и корректная укладка
-  const skip = rows.filter(r => r.violation_codes === "unsupported").length;
+  // иначе чужая модальность попадает в ту же клетку, что и корректная укладка.
+  // Размытый снимок — денситометрия, непригодная для чтения: он среди нарушений (переснять), а не здесь
+  const refused = (r) => r.violation_codes === "unsupported";
+  const skip = rows.filter(refused).length;
   $("n-total").textContent = rows.length;
   $("n-bad").textContent = bad;
   $("n-ok").textContent = rows.length - bad - fail - skip;
@@ -220,6 +234,18 @@ function draw() {
   view = rows.map((r, i) => [r, i]);
   if ($("only-bad").checked) view = view.filter(([r]) => r.quality_class === 1 || r.processing_status !== "Success");
   if ($("sort").value === "prob") view.sort((a, b) => (b[0].quality_prob ?? -1) - (a[0].quality_prob ?? -1));
+  if ($("sort").value === "priority") {
+    // как в очереди лаборанта: сначала то, что переснимать, потом спорные, потом годные, в конце — не оценённые
+    const rank = (r) => r.processing_status !== "Success" || refused(r) ? 3 : r.quality_class === 1 ? 0 : r.review ? 1 : 2;
+    view.sort((a, b) => rank(a[0]) - rank(b[0]) || (b[0].quality_prob ?? -1) - (a[0].quality_prob ?? -1));
+  }
+  const studies = [...new Map(rows.filter(r => r.study_summary).map(r => [r.path_to_study + "|" + r.study_summary, r])).values()];
+  $("studies").classList.toggle("hidden", !studies.length);
+  $("studies-list").innerHTML = studies.map(r => {
+    const s = r.study_summary.replace(/[&<>]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;" }[c]));
+    const name = r.path_to_study && r.path_to_study !== "." ? `<b>${r.path_to_study}</b>: ` : "";
+    return `<li>${name}${s}</li>`;
+  }).join("");
   $("shown").textContent = view.length === rows.length ? "" : `показано ${view.length} из ${rows.length}`;
   $("used").textContent = used ? `режим: ${used}` : "";
   gallery = view.filter(([r]) => r.overlay).map(([r]) => r);   // просмотр стрелками идёт по тому, что видно
@@ -232,10 +258,14 @@ function draw() {
       r.anatomical_region || "—",
       r.processing_status !== "Success"
         ? `<span class="pill bad">ошибка</span>`
-        : r.violation_codes === "unsupported"
+        : refused(r)
           ? `<span class="pill skip">не оценивался</span>`
-          : `<span class="pill ${r.quality_class ? "bad" : "ok"}">${r.quality_class ? "нарушение" : "качественное"}</span>`,
-      r.violation_type || `<span class="muted">—</span>`,
+          : r.violation_codes === "blurred"
+            ? `<span class="pill bad">размыт</span>`
+          : r.quality_class === 0 && r.review
+            ? `<span class="pill warn">спорный</span>`
+            : `<span class="pill ${r.quality_class ? "bad" : "ok"}">${r.quality_class ? "нарушение" : "качественное"}</span>`,
+      (r.violation_type || (r.violation_codes === "blurred" ? "Снимок размыт — переснять" : `<span class="muted">—</span>`)) + (r.reasons ? `<div class="why">${why(r)}</div>` : ""),
       `<span class="muted">${details(r)}</span>`,
       p == null ? "" : `<div class="row" style="gap:8px; flex-wrap:nowrap"><div class="bar"><i style="width:${p}%"></i></div>${p}%</div>`,
     ];
@@ -254,12 +284,17 @@ function draw() {
 // То, что оператору стоит сделать (подвинуть разделитель впечатанной разметки) или учесть
 // (эндопротез), — это не нарушение укладки, поэтому в столбец «Нарушения» оно не попадает,
 // а в измерениях выделено цветом.
+const esc = (t) => String(t).replace(/[&<>]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;" }[c]));
 function details(r) {
-  const esc = (t) => t.replace(/[&<>]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;" }[c]));
-  return esc(r.details || r.error || "").split("; ")
-    .map((part) => /предлагаем сдвинуть|эндопротез/.test(part)
+  const base = esc(r.details || r.error || "").split("; ")
+    .map((part) => /предлагаем сдвинуть|эндопротез|сколиоза/.test(part)
       ? `<span class="hint">${part}</span>` : part)
     .join("; ");
+  return base + (r.review ? `<div class="why review">${esc(r.review)}</div>` : "");
+}
+// почему отмечено: по пункту на каждый тип нарушения — измерение и критерий ТЗ
+function why(r) {
+  return esc(r.reasons).split("; ").join("<br>");
 }
 
 function open_at(k) {
@@ -268,7 +303,7 @@ function open_at(k) {
   const r = gallery[at];
   $("dlg-title").textContent = `${r.file} — ${r.violation_type || "нарушений не найдено"}`;
   $("dlg-img").src = "data:image/png;base64," + r.overlay;
-  $("dlg-details").innerHTML = details(r);
+  $("dlg-details").innerHTML = (r.reasons ? `<div><b>Почему:</b> ${why(r)}</div>` : "") + details(r);
   const sug = r.markup_suggestion || "";
   $("dlg-fix").classList.toggle("hidden", !sug);
   if (sug) {
@@ -295,8 +330,8 @@ $("dlg").addEventListener("keydown", (e) => {
 });
 
 $("csv").onclick = () => {
-  const cols = ["file", "anatomical_region", "quality_class", "quality_prob", "violation_type", "details",
-                "processing_status", "time_of_processing"];
+  const cols = ["file", "anatomical_region", "quality_class", "quality_prob", "violation_type", "reasons", "details",
+                "review", "study_summary", "processing_status", "time_of_processing"];
   const esc = (v) => `"${String(v ?? "").replace(/"/g, '""')}"`;
   const csv = "﻿" + [cols.join(","), ...rows.map(r => cols.map(c => esc(r[c])).join(","))].join("\n");
   const a = document.createElement("a");

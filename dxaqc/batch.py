@@ -12,7 +12,14 @@ import pandas as pd
 # correction of the printed markup that the specialist confirms in the web interface (ТЗ 2.6).
 COLUMNS = ["path_to_study", "study_uid", "image_uid", "anatomical_region", "projection", "quality_class",
            "violation_type", "processing_status", "time_of_processing", "quality_prob", "violation_codes",
-           "details", "markup_suggestion", "mm_per_px", "mm_per_px_source", "file", "error"]
+           "details", "reasons", "review", "study_summary", "markup_suggestion", "mm_per_px", "mm_per_px_source",
+           "file", "error"]
+
+# Сводка по исследованию для лаборанта: что переснять, пока пациент ещё на столе (консультация 16.10:
+# лаборант проверяет снимки во время исследования, врач — уже после, когда пациент ушёл).
+_SITE = {"spine": "позвоночник", "hip_left": "левое бедро", "hip_right": "правое бедро"}
+_SHORT = {"v_axis": "наклон оси", "v_pos": "укладка", "v_artifact": "посторонний предмет",
+          "v_roi": "поля кадра", "v_posrot": "ротация", "blurred": "снимок размыт"}
 
 
 def _zip_name(info):
@@ -58,6 +65,45 @@ def zip_top_level(path: Path):
                 return None
             tops.add(parts[0])
     return tops.pop() if len(tops) == 1 else None
+
+
+def study_summaries(rows):
+    """Одна строка на исследование — что переснять и что в порядке; пишется в каждую строку исследования."""
+    # визит — это папка исследования: в образце организаторов позвоночник и бёдра одного пациента лежат в одной
+    # папке под разными StudyInstanceUID. По идентификатору группируем, только если файлы свалены в корень.
+    by_study = {}
+    for r in rows:
+        folder = str(r.get("path_to_study") or "")
+        key = folder if folder not in ("", ".") else (r.get("study_uid") or r["file"])
+        by_study.setdefault(key, []).append(r)
+    for group in by_study.values():
+        redo, fine, skipped = [], [], []
+        for r in group:
+            site = _SITE.get(r.get("_region"), Path(str(r["file"])).name)
+            codes = [c for c in str(r.get("violation_codes") or "").split(";") if c]
+            if r.get("processing_status") != "Success":
+                skipped.append(f"{Path(str(r['file'])).name} — ошибка чтения")
+            elif codes and codes[0] == "unsupported":
+                skipped.append(f"{site} — не денситометрия")
+            elif r.get("quality_class") == 1:
+                redo.append(f"{site} ({', '.join(_SHORT.get(c, c) for c in codes)})")
+            else:
+                fine.append(site + (" — спорный, стоит взглянуть" if r.get("review") else ""))
+        # в выгрузке каждый снимок лежит дважды (499 файлов на 252 снимка) — повторы в сводке не нужны
+        redo, fine, skipped = (list(dict.fromkeys(x)) for x in (redo, fine, skipped))
+        parts = []
+        if redo:
+            parts.append("переснять: " + "; ".join(redo))
+        if fine:
+            parts.append("в порядке: " + ", ".join(fine))
+        if skipped:
+            parts.append("не оценено: " + "; ".join(skipped))
+        text = ". ".join(parts) if parts else ""
+        if not redo and not skipped and fine:
+            text = "все снимки исследования годны" + ("" if not any(r.get("review") for r in group)
+                                                     else "; " + ", ".join(f for f in fine if "спорный" in f))
+        for r in group:
+            r["study_summary"] = text
 
 
 def study_folders(rows):
@@ -149,6 +195,7 @@ def run_batch(root: Path, service, vis_dir=None, policy=None) -> pd.DataFrame:
                                            vis_dir=(Path(vis_dir) / study) if need_vis else None)
             rows[k]["file"] = str(rel)
     study_folders(rows)
+    study_summaries(rows)
     return pd.DataFrame(rows, columns=COLUMNS)
 
 

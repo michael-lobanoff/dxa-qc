@@ -34,8 +34,8 @@ def real_mask(img, boxes):
 
 
 class ArtDataset(torch.utils.data.Dataset):
-    def __init__(self, items, train, seed=0):
-        self.items, self.train, self.rng = items, train, np.random.default_rng(seed)
+    def __init__(self, items, train, seed=0, broad=False):
+        self.items, self.train, self.rng, self.broad = items, train, np.random.default_rng(seed), broad
 
     def __len__(self):
         return len(self.items)
@@ -46,9 +46,20 @@ class ArtDataset(torch.utils.data.Dataset):
         h, w = img.shape
         if self.train:
             if r.random() < (0.6 if it["clean"] else 0.3):
-                img, m = (synth.draw_underwire(img, r, it["spine_x"], return_mask=True) if r.random() < 0.6
-                          else synth.draw_hardware(img, r, return_mask=True))
+                u = r.random()
+                if not self.broad:
+                    img, m = (synth.draw_underwire(img, r, it["spine_x"], return_mask=True) if u < 0.6
+                              else synth.draw_hardware(img, r, return_mask=True))
+                elif u < 0.4:
+                    img, m = synth.draw_underwire(img, r, it["spine_x"], return_mask=True)
+                elif u < 0.65:
+                    img, m = synth.draw_hardware(img, r, return_mask=True)
+                else:   # любой металл: монеты, пластины, пятна, молнии — в том числе поверх позвонков
+                    img, m = synth.draw_object(img, r, return_mask=True)
                 mask |= m
+            if self.broad and r.random() < 0.25:
+                # разметка аппарата — не металл: рисуем рамки и подписи, маску не трогаем
+                img = synth.draw_device_markup(img, r, it["spine_x"])
             if r.random() < 0.5:
                 img, mask = img[:, ::-1], mask[:, ::-1]
             aff = cv2.getRotationMatrix2D((K.SIZE / 2, K.SIZE / 2), r.uniform(-8, 8), r.uniform(0.92, 1.08))
@@ -69,10 +80,10 @@ def worker_init(_):
     info.dataset.rng = np.random.default_rng(info.seed % 2 ** 32)
 
 
-def train(items, device, epochs, seed):
+def train(items, device, epochs, seed, broad=False):
     torch.manual_seed(seed)
     net = K.KPNet(1).to(device)
-    dl = torch.utils.data.DataLoader(ArtDataset(items, True, seed), batch_size=8, shuffle=True, drop_last=True,
+    dl = torch.utils.data.DataLoader(ArtDataset(items, True, seed, broad), batch_size=8, shuffle=True, drop_last=True,
                                      num_workers=4, persistent_workers=True, worker_init_fn=worker_init)
     opt = torch.optim.AdamW(net.parameters(), lr=2e-3, weight_decay=1e-4)
     sched = torch.optim.lr_scheduler.OneCycleLR(opt, max_lr=2e-3, total_steps=epochs * len(dl), pct_start=0.1)
@@ -105,6 +116,10 @@ def main():
     ap.add_argument("--save-final", action="store_true")
     ap.add_argument("--finals", type=int, default=1, help="with --save-final: this many nets (seeds 42, 43, ...)")
     ap.add_argument("--tag", default="", help="suffix of the output files, to compare variants without overwriting")
+    ap.add_argument("--broad", action="store_true",
+                    help="любой металл (монеты, пластины, пятна, молнии) и разметка аппарата как отрицательные примеры")
+    ap.add_argument("--dest-dir", default="models",
+                    help="куда класть финальные сети; сервис берёт в ансамбль все artifact_seg*.pt из models/")
     args = ap.parse_args()
     sfx = f"_{args.tag}" if args.tag else ""
     device = "mps" if torch.backends.mps.is_available() else "cpu"
@@ -129,7 +144,7 @@ def main():
         o = np.zeros(len(y))
         for fold, (tr, va) in enumerate(StratifiedKFold(5, shuffle=True, random_state=400 + r).split(ids, y)):
             t0 = time.time()
-            net = train([items[i] for i in tr if items[i]["usable"]], device, args.epochs, seed=r * 10 + fold)
+            net = train([items[i] for i in tr if items[i]["usable"]], device, args.epochs, seed=r * 10 + fold, broad=args.broad)
             o[va] = scores(net, [items[i] for i in va], device)[0]
             print(f"  repeat {r} fold {fold}: {time.time() - t0:.0f}s", flush=True)
         pooled_oof = o if r == 0 else pooled_oof + o
@@ -149,8 +164,9 @@ def main():
     Path(f"data/train/artifact_seg_eval{sfx}.json").write_text(json.dumps(out, indent=1))
     if args.save_final:
         for k in range(args.finals):
-            net = train([it for it in items if it["usable"]], device, args.epochs, seed=42 + k)
-            dest = "models/artifact_seg.pt" if k == 0 else f"models/artifact_seg_{k + 1}.pt"
+            net = train([it for it in items if it["usable"]], device, args.epochs, seed=42 + k, broad=args.broad)
+            Path(args.dest_dir).mkdir(parents=True, exist_ok=True)
+            dest = f"{args.dest_dir}/artifact_seg.pt" if k == 0 else f"{args.dest_dir}/artifact_seg_{k + 1}.pt"
             torch.save({"state_dict": net.state_dict(), "size": K.SIZE, "margin": K.MARGIN}, dest)
             print("saved", dest)
 

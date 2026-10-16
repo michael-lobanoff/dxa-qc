@@ -9,11 +9,13 @@ import numpy as np
 import pydicom
 
 from .decision import NAMES_RU, hip_measurements, spine_measurements
+from .features import SCOLIOSIS_BEND_DEG, spine_bend_angle, spine_centerline
 from .markup import describe as describe_markup, describe_corrections
 from .artifactnet import ArtifactSegmenter
 from .detector import KeypointDetector
 from .hipcrop import hip_crop, rotation_features
 from .pixels import DXA_MIN_MM_PER_PX, pixel_spacing_mm
+from .quality import too_blurred
 from .region import RegionClassifier
 
 # разъяснения V2, вопрос 15: only these two values, the side is not reported (it is still detected
@@ -75,11 +77,24 @@ class QCService:
                     "implant": False, "quality_class": 0, "mm_per_px": mm_per_px}
         region, region_conf = self.region.predict(img)
         region = str(region)
+        blurred, sharp, sharp_min = too_blurred(img, region)
+        if blurred:
+            # измерения на смазанном снимке недостоверны: точки уезжают, а вердикт выглядел бы уверенным
+            return {"region": region, "unsupported": False, "blurred": True, "sharpness": sharp,
+                    "sharpness_min": sharp_min, "points": {}, "measurements": {}, "probs": {}, "violations": [],
+                    "score": 1.0, "implant": False, "quality_class": 1, "mm_per_px": mm_per_px, "checks": stats}
         points, conf, members = self.detector(img, region, members=True)
         out = {"region": region, "region_conf": region_conf, "points": points, "point_conf": conf,
                "mm_per_px": mm_per_px, "unsupported": False, "checks": stats}
         if region == "spine":
             meas = spine_measurements(img, points, conf, mm_per_px, self.segmenter.area(img))
+            # сколиоз — наблюдение, а не нарушение: эксперт отмечал его комментарием и ни разу — наклоном оси
+            bend = spine_bend_angle(img, points)
+            meas["bend_angle"] = bend
+            meas["scoliosis"] = bend is not None and bend >= SCOLIOSIS_BEND_DEG
+            if meas["scoliosis"]:                     # линия для картинки: изгиб видно глазами рядом с прямой осью
+                yy, xs = spine_centerline(img, points)
+                meas["centerline"] = [(float(x), float(y)) for x, y in zip(xs[::4], yy[::4])]
         else:
             # Q&A 17.09: a hip with an endoprosthesis is judged like any other hip (positioning and field
             # are still the radiographer's job); the implant is only reported as a note in `details`.
@@ -108,8 +123,18 @@ class QCService:
             quality_class, score = 1, max(score, 0.9)
             if "v_pos" not in violations:
                 violations.append("v_pos")
+        # «Спорный» годный снимок: вероятность типа ближе к порогу сбалансированного режима, чем к порогу
+        # скрининга. Зона между порогами есть только у ротации и полей кадра бедра; у полей она широкая
+        # (7 положительных примеров), и весь отрезок до порога скрининга задевал 13 % годных снимков —
+        # верхняя половина задевает 4 %, это частота, при которой пометка ещё что-то значит.
+        borderline = []
+        if policy != "screening" and quality_class == 0:
+            tb, ts = model.thresholds_for(policy), model.thresholds_for("screening")
+            borderline = [v for v, p in probs.items()
+                          if ts[v] < tb[v] and (ts[v] + tb[v]) / 2 <= p < tb[v]
+                          and not (v == "v_artifact" and meas.get("printed_markup"))]
         out.update(implant=bool(meas.get("implant", False)), measurements=meas, probs=probs, violations=violations, score=score,
-                   quality_class=quality_class)
+                   quality_class=quality_class, borderline=borderline)
         return out
 
     def process_file(self, path, study_dir="", vis_dir=None, rotation_override=None, policy=None):
@@ -119,7 +144,7 @@ class QCService:
         row = {"path_to_study": study_dir, "file": str(path), "study_uid": "", "image_uid": "", "anatomical_region": "", "projection": "",
                "quality_class": None, "quality_prob": None, "violation_type": "", "violation_codes": "",
                "processing_status": "Failure", "time_of_processing": None, "details": "", "error": "",
-               "markup_suggestion": "",
+               "markup_suggestion": "", "reasons": "", "review": "",
                "mm_per_px": None, "mm_per_px_source": ""}
         try:
             img, ds = read_dicom_image(path)
@@ -145,6 +170,17 @@ class QCService:
                            processing_status="Success")
                 row["time_of_processing"] = round(time.time() - t0, 3)
                 return row
+            if r.get("blurred"):
+                # в отличие от чужой модальности, это денситометрия, и для интерпретации она непригодна —
+                # класс 1, чтобы система, читающая только quality_class, не приняла её за качественную.
+                # Типа нарушения нет: размытия нет в закрытом списке ТЗ, причина — в details
+                row["_region"] = r["region"]
+                row.update(anatomical_region=REGION_RU[r["region"]], projection=PROJECTION_RU, quality_class=1,
+                           quality_prob=1.0, violation_type="", violation_codes="blurred", processing_status="Success",
+                           details=f"оценка не проводится: снимок размыт — резкость {r['sharpness']:.3f} при минимуме "
+                                   f"{r['sharpness_min']:.3f}; измерения недостоверны, нужен повторный снимок")
+                row["time_of_processing"] = round(time.time() - t0, 3)
+                return row
             row["anatomical_region"] = REGION_RU[r["region"]]
             row["projection"] = PROJECTION_RU
             row["_region"] = r["region"]
@@ -161,6 +197,9 @@ class QCService:
                     bits.append(f"над гребнями {m['span_vert']:.1f} позвонка")
                 if m.get("vert_pitch_mm"):
                     bits.append(f"высота позвонка {m['vert_pitch_mm']:.0f} мм")
+                if m.get("scoliosis") and m.get("curvature"):
+                    bits.append(f"признаки сколиоза: центр столба отходит от прямой на {m['curvature']:.0f} мм — "
+                                "это изгиб, а не наклон, на вердикт не влияет")
                 if m.get("printed_markup"):
                     bits.append("на снимке впечатана разметка аппарата: инородные тела не оцениваются")
                 note = describe_markup(m.get("markup_review"))
@@ -180,6 +219,10 @@ class QCService:
                 if m.get("printed_markup"):
                     bits.append("на снимке впечатана разметка аппарата")
                 row["details"] = "; ".join(bits)
+            row["reasons"] = "; ".join(explain(r["violations"], m, r["region"]))
+            if r.get("borderline"):
+                row["review"] = ("спорный: в режиме скрининга был бы отмечен — "
+                                 + ", ".join(NAMES_RU[v].lower() for v in r["borderline"]))
             row["processing_status"] = "Success"
             if vis_dir is not None:
                 from PIL import Image
@@ -195,3 +238,52 @@ class QCService:
             row["error"] = f"{type(e).__name__}: {e}"
         row["time_of_processing"] = round(time.time() - t0, 3)
         return row
+
+# ТЗ 2.3: критерии, с которыми сравниваем измерения в пояснении. Вердикт выдаёт модель, обученная на
+# оценках экспертов, а они расходятся с буквальными порогами ТЗ (наклон эксперт отмечает примерно с 3°,
+# а не с 5°; у 46 из 143 нормальных бёдер верхнее поле меньше 3 см). Поэтому пояснение показывает
+# измерение и критерий, и честно говорит, когда измерение у границы, — а не «нарушено, потому что > 5°».
+MAX_TILT_DEG = 5.0
+HIP_MARGIN_MM = {"top": 30, "bottom": 30, "lateral": 20}
+
+
+def explain(violations, m, region):
+    """Почему снимок отмечен: по строке на каждый найденный тип нарушения."""
+    out = []
+    for v in violations:
+        if v == "v_axis":
+            t = abs(m.get("tilt_deg") or 0.0)
+            out.append(f"ось отклонена на {t:.1f}° при допуске ТЗ {MAX_TILT_DEG:.0f}°" if t >= MAX_TILT_DEG else
+                       f"ось отклонена на {t:.1f}° — у границы допуска ТЗ {MAX_TILT_DEG:.0f}°, эксперты такое отмечают")
+            if m.get("scoliosis"):
+                # 7 из 17 ложных «наклонов» на обучающих данных — сколиозы эксперта: флаг оставляем
+                # (гасить его — терять верные срабатывания), но говорим врачу, что стоит проверить
+                out.append("есть признаки сколиоза: наклон может быть следствием изгиба, а не укладки — стоит проверить")
+        elif v == "v_pos":
+            if m.get("top_coverage_ok") is False:
+                out.append("сверху в кадре мало позвоночника: середина Th12 не попадает в кадр")
+            elif (m.get("crest_conf") or 0) < 0.5:
+                out.append("не видны гребни подвздошных костей — по ТЗ они должны быть в кадре")
+            else:
+                out.append("укладка позвоночника по совокупности признаков: гребни и охват у границы")
+        elif v == "v_artifact":
+            out.append("в кадре посторонний предмет — обведён на снимке; по ТЗ металла и наложений быть не должно")
+        elif v == "v_roi":
+            ru = {"top": "сверху", "bottom": "снизу", "lateral": "сбоку"}
+            short = [f"{ru[k]} {m[f'margin_{k}']:.0f} мм при норме {n} мм" for k, n in HIP_MARGIN_MM.items()
+                     if m.get(f"margin_{k}") is not None and m[f"margin_{k}"] < n]
+            unmeasured = [ru[k] for k in HIP_MARGIN_MM if m.get(f"margin_{k}") is None]
+            if short:
+                out.append("поля кадра: " + ", ".join(short))
+            elif len(unmeasured) == len(HIP_MARGIN_MM):
+                out.append("часть бедра вне кадра — поля измерить нельзя")
+            elif unmeasured:
+                out.append("поле " + ", ".join(unmeasured) + " измерить нельзя: ориентир вне кадра")
+            else:
+                out.append("поля кадра у границы нормы ТЗ (3 см сверху и снизу, 2 см сбоку)")
+        elif v == "v_posrot":
+            p = m.get("rotation")
+            out.append("ротация бедра по форме малого вертела" + (f" (вероятность {p:.0%})" if p is not None else "")
+                       + "; по ТЗ нужна внутренняя ротация, при которой малый вертел едва виден")
+    return out
+

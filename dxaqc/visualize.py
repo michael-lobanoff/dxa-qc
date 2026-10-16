@@ -13,6 +13,7 @@ from .decision import NAMES_RU
 from .geometry import MM_PER_PX
 
 GREEN, RED, YELLOW, CYAN, WHITE = (90, 209, 122), (255, 90, 90), (255, 216, 76), (76, 194, 255), (255, 255, 255)
+MAGENTA = (236, 112, 220)   # центральная линия столба при признаках сколиоза
 SCALE = 3
 
 
@@ -80,9 +81,16 @@ def render_overlay(img, result):
                                        cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
             cv2.drawContours(rgb, cnts, -1, RED if "v_artifact" in result["violations"] else YELLOW, 2)
         m2 = result["measurements"]
+        cl = m2.get("centerline")
+        if cl:   # признаки сколиоза: центральная линия столба рядом с прямой осью — изгиб видно глазами
+            pts = np.array([_pt(q) for q in cl], np.int32)
+            cv2.polylines(rgb, [pts], False, MAGENTA, 2, cv2.LINE_AA)
         tilt, sv = m2.get("tilt_deg"), m2.get("span_vert")
         lines = [("Позвоночник" if tilt is None else f"Позвоночник: наклон оси {tilt:+.1f}°")
                  + ("" if sv is None else f", над гребнями {sv:.1f} позвонка (по {m2['vert_pitch_mm']:.0f} мм)")]
+        if m2.get("scoliosis") and m2.get("curvature"):
+            lines.append(f"признаки сколиоза: центр столба отходит от прямой на {m2['curvature']:.0f} мм "
+                         "(розовая линия) — изгиб, не наклон")
     else:
         meas = result.get("measurements", {})
         for k, v in p.items():
@@ -118,6 +126,8 @@ def render_overlay(img, result):
         lines.append("эндопротез: укладка оценена как у обычного бедра")
     lines.append(("Вердикт: " + "; ".join(NAMES_RU[v] for v in result["violations"]) if bad else "Вердикт: качественно")
                  + (f" (вероятность {result['score']:.2f})" if result.get("score") is not None else ""))
+    if result.get("borderline"):
+        lines.append("спорный: в режиме скрининга был бы отмечен — " + ", ".join(NAMES_RU[v].lower() for v in result["borderline"]))
     color = RED if bad else GREEN
     return _with_header(rgb, lines, color)
 

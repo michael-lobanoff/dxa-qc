@@ -39,6 +39,8 @@ def main():
                     help="detector runs of the shipped ensemble: rotation trains on all their crops and averages over them")
     ap.add_argument("--seg", default="", help="metal segmentation variant: data/train/artifact_seg_oof_<seg>.json")
     ap.add_argument("--synth", default=None, help="synthetic scans for the rare types: data/train/synth_meas_<synth>.csv")
+    ap.add_argument("--out", default="models/decision.pkl",
+                    help="куда сохранить; кандидата удобно собрать отдельно и подменить после проверки")
     args = ap.parse_args()
     sfx = f"_{args.tag}" if args.tag else ""
     idx = pd.read_csv("data/train/image_index.csv")
@@ -115,9 +117,10 @@ def main():
         out[r].set_image_thresholds(y_all, s_all)
     print("общий порог по изображению:", {k: round(v, 3) for k, v in out["spine"].image_thresholds.items()})
     Path("models").mkdir(exist_ok=True)
-    with open("models/decision.pkl", "wb") as f:
+    Path(args.out).parent.mkdir(parents=True, exist_ok=True)
+    with open(args.out, "wb") as f:
         pickle.dump(out, f)
-    print("saved models/decision.pkl")
+    print(f"saved {args.out}")
 
 
 if __name__ == "__main__":

@@ -188,3 +188,68 @@ def hip_sample(img, kp, side, kind, rng, mm_per_px=G.MM_PER_PX):
         w, lat = img.shape[1], m[edge] / mm_per_px
         img, kp = zoom_crop(img, kp, w * (lat - target_px) / (w - target_px), side)
     return img, kp, G.hip_rules(kp, img.shape, side, mm_per_px)
+
+
+# ---------------------------------------------------------------- шире: любой металл и разметка аппарата
+# Обучающие виды металла, которых нет в разметке организаторов. Кольца, пуговицы и цепочки сюда
+# намеренно не входят: по ним (scripts/novel_objects.py) проверяется, ловит ли сеть предметы,
+# которых не видела вообще.
+OBJECT_KINDS = ("coin", "plate", "blob", "zipper")
+
+
+def draw_object(img, rng, mm_per_px=0.607, return_mask=False):
+    """Металлический предмет одного из обучающих видов в любом месте тела, в том числе поверх позвонков."""
+    h, w = img.shape
+    ys, xs = np.where(img > np.percentile(img, 35))
+    k = rng.integers(len(xs)) if len(xs) else 0
+    c = (float(xs[k]), float(ys[k])) if len(xs) else (w / 2, h / 2)
+    mask = np.zeros((h, w), np.float32)
+    kind = OBJECT_KINDS[rng.integers(len(OBJECT_KINDS))]
+    if kind == "coin":                       # монета, 10–25 мм
+        cv2.circle(mask, (int(c[0]), int(c[1])), int(rng.uniform(10, 25) / mm_per_px / 2), 1.0, -1, cv2.LINE_AA)
+    elif kind == "plate":                    # пластина, ключ, бейдж
+        box = cv2.boxPoints(((c[0], c[1]), (rng.uniform(6, 20) / mm_per_px, rng.uniform(15, 50) / mm_per_px),
+                             rng.uniform(0, 180))).astype(np.int32)
+        cv2.fillConvexPoly(mask, box, 1.0, cv2.LINE_AA)
+    elif kind == "blob":                     # плотный предмет неправильной формы
+        n = int(rng.integers(5, 10))
+        ang = np.sort(rng.uniform(0, 2 * np.pi, n))
+        rad = rng.uniform(4, 15, n) / mm_per_px
+        pts = np.c_[c[0] + rad * np.cos(ang), c[1] + rad * np.sin(ang)].astype(np.int32)
+        cv2.fillPoly(mask, [pts], 1.0, cv2.LINE_AA)
+    else:                                    # молния: лесенка коротких зубцов
+        ln = rng.uniform(30, 90) / mm_per_px
+        a = rng.uniform(-0.4, 0.4) + (np.pi / 2 if rng.random() < 0.7 else 0.0)
+        d, nrm = np.array([np.cos(a), np.sin(a)]), np.array([-np.sin(a), np.cos(a)])
+        step, half = rng.uniform(2.5, 4), rng.uniform(2, 3.5)
+        for t in np.arange(-ln / 2, ln / 2, step):
+            p = np.array(c) + t * d
+            cv2.line(mask, tuple((p - half * nrm).astype(int)), tuple((p + half * nrm).astype(int)), 1.0, 1, cv2.LINE_AA)
+    return _stamp(img, mask, rng, return_mask)
+
+
+def draw_device_markup(img, rng, spine_x=None):
+    """Рамки уровней и подписи L1–L4, которые денситометр впечатывает в снимок.
+
+    Это не посторонний предмет (консультация 16.10: «на эту разметку не обращайте внимания»), поэтому
+    маска металла под ней остаётся пустой: сеть учится, что прямые рамки с подписями — фон.
+    """
+    h, w = img.shape
+    out = img.copy()
+    level = int(rng.uniform(0.8, 1.0) * max(int(img.max()), 200))
+    cx = spine_x if spine_x is not None else w / 2
+    bw = rng.uniform(0.25, 0.45) * w
+    x1, x2 = int(cx - bw / 2), int(cx + bw / 2)
+    y0 = int(rng.uniform(0.15, 0.35) * h)
+    step = int(rng.uniform(0.12, 0.17) * h)
+    n = int(rng.integers(3, 5))
+    th = 1 if rng.random() < 0.7 else 2
+    cv2.rectangle(out, (x1, y0), (x2, min(y0 + n * step, h - 2)), level, th)
+    font = cv2.FONT_HERSHEY_SIMPLEX
+    for k in range(n):
+        y = y0 + k * step
+        if k:
+            cv2.line(out, (x1, y), (x2, y), level, th)
+        cv2.putText(out, f"L{k + 1}", (max(x1 - int(0.12 * w), 1), y + step // 2), font,
+                    rng.uniform(0.3, 0.45), level, 1, cv2.LINE_AA)
+    return out

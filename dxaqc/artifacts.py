@@ -76,16 +76,30 @@ def _drop_overlay(lab, k, ovl):
     return ovl[m].mean() > 0.6
 
 
+# Разметка аппарата — это не только линии рамок, но и подписи уровней («L1», «L2»…) прямо у рамок: мелкие,
+# яркие и не прямые, поэтому в маску линий они не попадают. Консультация 16.10: разметка аппарата — не
+# посторонний предмет. Когда на снимке есть рамки, мелкие яркие объекты в полосе вокруг них считаем подписями.
+# На снимках организаторов рамок нет ни на одном из 499 файлов, так что там ничего не меняется.
+PRINTED_MIN_LINES = 3
+LABEL_BAND_PX = 15
+LABEL_MAX_AREA = 200
+
+
 def thin_bright_components(img, kernel=KERNEL, th_rel=TH_REL):
     g = img.astype(np.float32)
     tophat = cv2.morphologyEx(g, cv2.MORPH_TOPHAT, cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (kernel, kernel)))
     mask = (tophat > th_rel * 255) & (g > np.percentile(g, 85))
     n, lab, stats, cent = cv2.connectedComponentsWithStats(mask.astype(np.uint8), 8)
     ovl, n_lines = overlay_mask(img, kernel, th_rel)
+    band = None
+    if n_lines >= PRINTED_MIN_LINES:
+        band = cv2.dilate(ovl.astype(np.uint8), np.ones((2 * LABEL_BAND_PX + 1,) * 2, np.uint8)).astype(bool)
     comps = []
     for k in range(1, n):
         area = stats[k, cv2.CC_STAT_AREA]
         if area < 6 or _drop_overlay(lab, k, ovl):
+            continue
+        if band is not None and area <= LABEL_MAX_AREA and band[int(cent[k, 1]), int(cent[k, 0])]:
             continue
         ys, xs = np.where(lab == k)
         cov = np.cov(np.stack([xs, ys])) if area > 2 else np.eye(2)

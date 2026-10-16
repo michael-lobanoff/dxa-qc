@@ -138,3 +138,54 @@ def spine_curvature(img, points, window=60, mm_per_px=None):
         return None
     dev = median_filter(np.asarray(dev), size=15, mode="nearest")
     return float(np.abs(dev).max() * mm_per_px)
+
+
+# Порог изгиба, с которого сервис отмечает признаки сколиоза. Подобран по F1 внутри обучающих фолдов
+# на 14 сколиозах из 99 позвоночников; во всех разбиениях порог 31.3–32.5 (scripts/scoliosis_probe.py).
+SCOLIOSIS_BEND_DEG = 31.3
+
+
+def spine_centerline(img, points, window=60):
+    """Центральная линия позвоночного столба: (строки, x центра), сглажено; None, если столб не найден."""
+    import cv2
+    from scipy.ndimage import median_filter
+
+    t, b = points.get("col_top"), points.get("col_bottom")
+    if not t or not b or b[1] - t[1] < 30:
+        return None
+    g = cv2.GaussianBlur(img.astype(np.float32), (0, 0), 3)
+    h, w = g.shape
+    xs, yy = [], []
+    for y in range(int(max(t[1], 0)) + 5, int(min(b[1], h - 1)) - 5):
+        xl = t[0] + (b[0] - t[0]) * (y - t[1]) / (b[1] - t[1])
+        lo, hi = int(max(xl - window, 0)), int(min(xl + window, w - 1))
+        row = g[y, lo:hi + 1]
+        if row.size < 10:
+            continue
+        thr = np.percentile(row, 20) + 0.5 * (row.max() - np.percentile(row, 20))
+        on = np.where(row > thr)[0]
+        xs.append(lo + (on.min() + on.max()) / 2)
+        yy.append(y)
+    if len(xs) < 20:
+        return None
+    return np.asarray(yy, float), median_filter(np.asarray(xs, float), size=15, mode="nearest")
+
+
+def spine_bend_angle(img, points, window=60, seg=24):
+    """Угол изгиба позвоночного столба по его центральной линии, градусы.
+
+    Эксперт отмечает сколиоз отдельно от наклона оси: 14 и 10 снимков без единого пересечения. Наклон —
+    это повёрнутый, но прямой столб; сколиоз — изогнутый. Касательную к центральной линии берём на отрезках
+    в полпозвонка и меряем размах её наклона — как угол по Фергюсону, по центрам позвонков. На сколиоз
+    AUC 0.79, на наклон оси 0.48, то есть мера реагирует на изгиб и не реагирует на поворот.
+
+    Числа не равны клиническому углу Кобба (короткие отрезки ловят и форму отдельных позвонков), поэтому
+    врачу показываем отклонение центра столба от прямой в миллиметрах, а угол служит только для решения.
+    """
+    line = spine_centerline(img, points, window)
+    if line is None:
+        return None
+    yy, xs = line
+    angs = [np.degrees(np.arctan2(xs[k + seg] - xs[k], yy[k + seg] - yy[k]))
+            for k in range(0, len(yy) - seg, seg // 2)]
+    return float(np.ptp(angs)) if len(angs) >= 2 else 0.0

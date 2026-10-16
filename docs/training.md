@@ -50,12 +50,20 @@ done
 # финальные модели -> models/kp_<region>.pt, kp_<region>_2.pt, kp_<region>_3.pt
 python scripts/ensemble_oof.py --tags fix_s100 strong_s100 base_s100 --out ens3      # точки ансамбля вне фолдов
 cp data/train/kp_oof_spine_ens3.json data/train/kp_oof_spine.json; cp data/train/kp_oof_hip_ens3.json data/train/kp_oof_hip.json
-python scripts/synth_decision.py --tags fix_s100 strong_s100 base_s100 --name ens3 --no-eval   # синтетика ~15 мин
+# синтетика для редких типов, ~15 мин: поля бедра и наклон позвоночника, затем один общий файл ens3b
+python scripts/synth_decision.py --tags fix_s100 strong_s100 base_s100 --name ens3 --regions hip --no-eval
+python scripts/synth_decision.py --tags fix_s100 strong_s100 base_s100 --name ens3 --regions spine --kinds tilt tilt_ok --no-eval
+python scripts/merge_synth.py ens3_hip ens3_spine --out ens3b
 python scripts/train_artifact_seg.py --save-final   # сегментация металла                 ~30 мин
-python scripts/fit_decision.py --synth ens3 --members fix_s100 strong_s100 base_s100          # ~3 мин
-python scripts/eval_pipeline.py --synth ens3 --members fix_s100 strong_s100 base_s100         # ~5 мин
+python scripts/fit_decision.py --synth ens3b --members fix_s100 strong_s100 base_s100         # ~3 мин
+python scripts/eval_pipeline.py --synth ens3b --members fix_s100 strong_s100 base_s100        # ~5 мин
 python scripts/figures.py            # графики для отчёта из сохранённых результатов      ~10 с
 ```
+
+В общий файл синтетики от позвоночника идут только виды наклона: синтетику укладки (`cut_*`) проверили
+и не берём. `fit_decision.py` берёт из файла все строки своей области, поэтому лишние виды в нём
+попали бы в обучение признаков оси. Именно `ens3b` лежит в основе `models/decision.pkl`: модель,
+обученная по командам выше, совпадает с отгруженной по весам и порогам.
 
 Ключевая деталь: `fit_decision.py` учится не на «идеальных» ручных точках, а на точках, предсказанных
 моделями, которые этот снимок не видели (`data/train/kp_oof_*.json`). Поэтому калибровка и пороги
