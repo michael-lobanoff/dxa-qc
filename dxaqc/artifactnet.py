@@ -2,8 +2,9 @@
 
 The same U-Net as the landmark models, with one output channel, trained on the boxes we annotated plus
 synthetic metal drawn by synth.py. It contributes two things: the contour a doctor sees on the overlay,
-and a second opinion for the decision layer — the hand-crafted top-hat feature alone scores 0.898 for
-foreign bodies, the net alone 0.822, the two together 0.911 (matched folds, 17 positives).
+and a second opinion for the decision layer — on matched folds (17 positives) the net alone scores 0.894
+for foreign bodies, the hand-crafted top-hat feature 0.903, the two together 0.911
+(data/train/artifact_seg_eval.json).
 """
 from pathlib import Path
 
