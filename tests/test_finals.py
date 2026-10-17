@@ -94,3 +94,17 @@ def test_study_summary_groups_by_folder_and_drops_duplicates():
     assert "правое бедро — спорный" in s1
     assert "переснять: позвоночник (снимок размыт)" in rows[4]["study_summary"]
     assert "не оценено: y.dcm — не денситометрия" in rows[5]["study_summary"]
+
+
+@needs_samples
+def test_overlay_outlines_what_the_segmentation_net_found(service):
+    """Предмет, который нашла только сеть сегментации (кольцо, пуговица), обведён на картинке для врача."""
+    from dxaqc.visualize import RED, render_overlay
+    img, _ = read_dicom_image(SPINE)
+    r = service.analyse(img)
+    assert r["seg_mask"].shape == img.shape
+    r["violations"] = ["v_artifact"]
+    r["seg_mask"] = np.zeros(img.shape, bool)
+    base = (render_overlay(img, r) == RED).all(-1).sum()
+    r["seg_mask"][100:130, 30:60] = True
+    assert (render_overlay(img, r) == RED).all(-1).sum() > base

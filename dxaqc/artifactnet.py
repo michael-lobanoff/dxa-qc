@@ -29,8 +29,8 @@ class ArtifactSegmenter:
         self.device = device
 
     @torch.no_grad()
-    def area(self, img) -> float:
-        """Number of pixels the net calls metal (in its own stride-2 grid)."""
+    def _prob(self, img):
+        """Probability map in the net's own stride-2 grid, and the letterbox matrix that maps the image there."""
         import cv2
         h, w = img.shape[:2]
         m = K.letterbox_matrix(h, w)
@@ -38,4 +38,18 @@ class ArtifactSegmenter:
                            flags=cv2.INTER_LINEAR) / 255.0
         t = torch.from_numpy(x.astype(np.float32))[None, None].to(self.device)
         p = torch.stack([torch.sigmoid(net(t)[0])[0, 0] for net in self.nets]).mean(0).cpu().numpy()
-        return float((p > 0.5).sum())
+        return p, m
+
+    def area(self, img) -> float:
+        """Number of pixels the net calls metal (in its own stride-2 grid)."""
+        return float((self._prob(img)[0] > 0.5).sum())
+
+    def predict(self, img):
+        """(area, mask): the area exactly as area() — the decision layer's feature — and the same answer
+        as a boolean mask in image coordinates, for the contour the doctor sees on the overlay."""
+        import cv2
+        p, m = self._prob(img)
+        h, w = img.shape[:2]
+        full = cv2.resize(p, (K.SIZE, K.SIZE), interpolation=cv2.INTER_LINEAR)
+        mask = cv2.warpAffine(full, cv2.invertAffineTransform(m), (w, h), flags=cv2.INTER_LINEAR) > 0.5
+        return float((p > 0.5).sum()), mask

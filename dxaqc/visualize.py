@@ -75,7 +75,12 @@ def render_overlay(img, result):
         for v in result["measurements"].get("vert_points") or []:   # vertebral bodies: the ruler behind
             x, y = _pt(v)                                           # the "half of Th12 in frame" check
             cv2.line(rgb, (x - 45, y), (x + 45, y), GREEN, 1, cv2.LINE_AA)
+        # контур постороннего предмета: тонкие яркие структуры (морфологический фильтр) и маска сети
+        # сегментации — сеть находит и предметы другой формы (кольцо, пуговицу), которые фильтр пропускает
         m = artifact_mask(img, p)
+        seg = result.get("seg_mask")
+        if seg is not None and "v_artifact" in result["violations"]:
+            m = m | seg
         if m.any():
             cnts, _ = cv2.findContours(cv2.resize(m.astype(np.uint8), (w * SCALE, h * SCALE), interpolation=cv2.INTER_NEAREST),
                                        cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)

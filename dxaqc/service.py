@@ -87,7 +87,9 @@ class QCService:
         out = {"region": region, "region_conf": region_conf, "points": points, "point_conf": conf,
                "mm_per_px": mm_per_px, "unsupported": False, "checks": stats}
         if region == "spine":
-            meas = spine_measurements(img, points, conf, mm_per_px, self.segmenter.area(img))
+            seg_area, seg_mask = self.segmenter.predict(img)
+            out["seg_mask"] = seg_mask                 # для контура на картинке; в признаки идёт только площадь
+            meas = spine_measurements(img, points, conf, mm_per_px, seg_area)
             # сколиоз — наблюдение, а не нарушение: эксперт отмечал его комментарием и ни разу — наклоном оси
             bend = spine_bend_angle(img, points)
             meas["bend_angle"] = bend
