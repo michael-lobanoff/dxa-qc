@@ -174,7 +174,11 @@ const $ = (id) => document.getElementById(id);
 let files = [], rows = [], view = [], gallery = [], at = 0, used = "";
 // ТЗ 2.6: коррекция разметки предлагается, а применяет её специалист. Его решение по каждому
 // снимку хранится здесь и уезжает в выгрузку отдельной колонкой.
-const fixes = new Map();
+const fixes = new Map();   // решение специалиста по коррекции разметки, ключ — исследование + файл
+// в разных исследованиях файлы часто называются одинаково (CR000000.dcm), поэтому имя файла — не ключ
+const study = (r) => r.path_to_study && r.path_to_study !== "." ? r.path_to_study : "";
+const rkey = (r) => `${study(r)}/${r.file}`;
+const DECISION = { yes: "принято", no: "отклонено" };
 
 function pick(list) {
   files = Array.from(list);
@@ -243,7 +247,7 @@ function draw() {
   $("studies").classList.toggle("hidden", !studies.length);
   $("studies-list").innerHTML = studies.map(r => {
     const s = r.study_summary.replace(/[&<>]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;" }[c]));
-    const name = r.path_to_study && r.path_to_study !== "." ? `<b>${r.path_to_study}</b>: ` : "";
+    const name = study(r) ? `<b>${esc(study(r))}</b>: ` : "";
     return `<li>${name}${s}</li>`;
   }).join("");
   $("shown").textContent = view.length === rows.length ? "" : `показано ${view.length} из ${rows.length}`;
@@ -254,7 +258,7 @@ function draw() {
     if (r.overlay) tr.className = "clickable";
     const p = r.quality_prob == null ? null : Math.round(r.quality_prob * 100);
     const cells = [
-      r.file || "",
+      esc(r.file || "") + (study(r) ? `<div class="muted" style="font-size:12px">${esc(study(r))}</div>` : ""),
       r.anatomical_region || "—",
       r.processing_status !== "Success"
         ? `<span class="pill bad">ошибка</span>`
@@ -301,14 +305,14 @@ function open_at(k) {
   if (!gallery.length) return;
   at = (k + gallery.length) % gallery.length;
   const r = gallery[at];
-  $("dlg-title").textContent = `${r.file} — ${r.violation_type || "нарушений не найдено"}`;
+  $("dlg-title").textContent = `${study(r) ? study(r) + " / " : ""}${r.file} — ${r.violation_type || "нарушений не найдено"}`;
   $("dlg-img").src = "data:image/png;base64," + r.overlay;
   $("dlg-details").innerHTML = (r.reasons ? `<div><b>Почему:</b> ${why(r)}</div>` : "") + details(r);
   const sug = r.markup_suggestion || "";
   $("dlg-fix").classList.toggle("hidden", !sug);
   if (sug) {
     $("dlg-fix-text").textContent = sug.charAt(0).toUpperCase() + sug.slice(1) + ".";
-    $("dlg-fix-state").textContent = { yes: "принято", no: "отклонено" }[fixes.get(r.file)] || "";
+    $("dlg-fix-state").textContent = DECISION[fixes.get(rkey(r))] || "";
   }
   $("dlg-pos").textContent = `${at + 1} / ${gallery.length}`;
   if (!$("dlg").open) $("dlg").showModal();
@@ -317,8 +321,8 @@ function open_at(k) {
 function decide(v) {
   const r = gallery[at];
   if (!r) return;
-  fixes.set(r.file, v);
-  $("dlg-fix-state").textContent = v === "yes" ? "принято" : "отклонено";
+  fixes.set(rkey(r), v);
+  $("dlg-fix-state").textContent = DECISION[v];
 }
 $("fix-yes").onclick = () => decide("yes");
 $("fix-no").onclick = () => decide("no");
@@ -330,10 +334,13 @@ $("dlg").addEventListener("keydown", (e) => {
 });
 
 $("csv").onclick = () => {
-  const cols = ["file", "anatomical_region", "quality_class", "quality_prob", "violation_type", "reasons", "details",
-                "review", "study_summary", "processing_status", "time_of_processing"];
-  const esc = (v) => `"${String(v ?? "").replace(/"/g, '""')}"`;
-  const csv = "﻿" + [cols.join(","), ...rows.map(r => cols.map(c => esc(r[c])).join(","))].join("\n");
+  // решение специалиста по предложенной коррекции разметки уходит в выгрузку рядом с самим предложением
+  const cols = ["path_to_study", "file", "anatomical_region", "quality_class", "quality_prob", "violation_type", "reasons",
+                "details", "review", "study_summary", "markup_suggestion", "markup_decision", "processing_status",
+                "time_of_processing"];
+  const cell = (r, c) => c === "markup_decision" ? DECISION[fixes.get(rkey(r))] || "" : r[c];
+  const q = (v) => `"${String(v ?? "").replace(/"/g, '""')}"`;
+  const csv = "﻿" + [cols.join(","), ...rows.map(r => cols.map(c => q(cell(r, c))).join(","))].join("\n");
   const a = document.createElement("a");
   a.href = URL.createObjectURL(new Blob([csv], { type: "text/csv" }));
   a.download = "results.csv";

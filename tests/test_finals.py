@@ -60,8 +60,10 @@ def test_bend_angle_is_a_number_on_a_real_spine(service):
 def test_explain_cites_the_criterion_and_is_honest_near_the_limit():
     hi = explain(["v_axis"], {"tilt_deg": -7.4}, "spine")[0]
     lo = explain(["v_axis"], {"tilt_deg": 4.1}, "spine")[0]
-    assert "7.4°" in hi and "допуске ТЗ 5°" in hi
+    assert "7.4°" in hi and "при допустимых 5°" in hi
     assert "у границы" in lo                         # не пишем «нарушено, потому что больше 5°» при 4.1°
+    assert not any("ТЗ" in s for s in explain(["v_axis", "v_pos", "v_artifact"], {"tilt_deg": 7.4, "scoliosis": True}, "spine")
+                   + explain(["v_roi", "v_posrot"], {"rotation": 0.6}, "hip_left"))   # пояснения — для врача, без ссылок на документ
     roi = explain(["v_roi"], {"margin_top": 12, "margin_bottom": 40, "margin_lateral": 25}, "hip_left")[0]
     assert "сверху 12 мм при норме 30 мм" in roi and "снизу" not in roi
     cut = explain(["v_roi"], {}, "hip_left")[0]
