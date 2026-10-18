@@ -29,6 +29,11 @@ REGION_RU = {"spine": "Поясничный отдел позвоночника"
 PROJECTION_RU = "переднезадняя (AP)"
 IMPLANT_METAL_FRACTION = 0.015  # saturated share: implants 0.018-0.12 on the training set, normal hips < 0.012
 
+# Anonymised exports put "Anonymized" into date, time and UID fields, and pydicom warns on every such value:
+# thousands of console lines per archive that bury the summary. The service reads only the pixels and the
+# pixel-size tag, so value checks on reading are switched off; values and pixels are read exactly as before.
+pydicom.config.settings.reading_validation_mode = pydicom.config.IGNORE
+
 
 def read_dicom_image(path):
     """Return (uint8 grayscale image, dataset). Handles MONOCHROME1, rescale, >8-bit data, RGB and multi-frame."""

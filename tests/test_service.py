@@ -272,3 +272,28 @@ def test_reads_compressed_dicom(service, tmp_path):
     after, _ = read_dicom_image(out)
     assert after.shape == before.shape
     assert np.abs(after.astype(int) - before.astype(int)).max() == 0
+
+
+def test_anonymised_fields_do_not_flood_the_console(service, tmp_path):
+    """Anonymised exports carry "Anonymized" in date, time and code-string fields and UIDs with leading-zero
+    components. pydicom used to warn on every such value, on reading and again when the overlay and the SR
+    copy them — thousands of console lines per archive that buried the run summary."""
+    import sys
+    import warnings
+    sys.path.insert(0, str(ROOT / "scripts"))
+    from selfcheck import synthetic_dicom
+
+    from dxaqc.batch import run_batch
+    src = tmp_path / "in"
+    src.mkdir()
+    path = synthetic_dicom(src / "anon.dcm")
+    with pydicom.config.disable_value_validation():
+        ds = pydicom.dcmread(path)
+        ds.StudyDate, ds.StudyTime, ds.PatientSex = "Anonymized", "Anonymized", "Anonymized"
+        ds.StudyInstanceUID = ds.SOPInstanceUID = "1.2.643.5.1.13.13.12.2.77.8252.0103140005"
+        ds.save_as(path)
+    with warnings.catch_warnings(record=True) as caught:
+        warnings.simplefilter("always")
+        df = run_batch(src, service, vis_dir=tmp_path / "vis")
+    assert list(df.processing_status) == ["Success"]
+    assert not [w for w in caught if "pydicom" in w.filename], [str(w.message) for w in caught]
