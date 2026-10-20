@@ -10,7 +10,7 @@
 ## Подготовка (один раз, до защиты)
 
 ```bash
-git clone git@github.com:michael-lobanoff/dxa-qc.git && cd dxa-qc && ./run.sh build
+git clone https://github.com/michael-lobanoff/dxa-qc.git && cd dxa-qc && ./run.sh build
 ```
 
 Сборка занимает 5–10 минут и нужна один раз. Проверка, что всё живо:
@@ -46,7 +46,7 @@ git clone git@github.com:michael-lobanoff/dxa-qc.git && cd dxa-qc && ./run.sh bu
 Secondary Capture и DICOM SR по каждому снимку плюс zip-архив рядом.
 
 Что показать: последнюю строку вывода — «499 images, 499 processed, 0 failed, mean time 0.43s».
-Что сказать: «Весь архив организаторов — 499 файлов, ни одной ошибки, полторы минуты».
+Что сказать: «Весь архив организаторов — 499 файлов, ни одной ошибки, 0.43 секунды на снимок».
 
 ## Сценарий В. API — если спросят про встраивание
 
