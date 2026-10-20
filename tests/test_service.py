@@ -297,3 +297,18 @@ def test_anonymised_fields_do_not_flood_the_console(service, tmp_path):
         df = run_batch(src, service, vis_dir=tmp_path / "vis")
     assert list(df.processing_status) == ["Success"]
     assert not [w for w in caught if "pydicom" in w.filename], [str(w.message) for w in caught]
+
+
+def test_visible_but_broken_gpu_falls_back_to_cpu(monkeypatch):
+    """On the organisers' server the vGPU had no licence: CUDA reported as available, every operation failed,
+    and the service died at start. Auto-detection must probe the device and fall back to the CPU."""
+    import dxaqc.detector as D
+    monkeypatch.delenv("DXAQC_DEVICE", raising=False)
+    monkeypatch.setattr(D.torch.backends.mps, "is_available", lambda: False)
+    monkeypatch.setattr(D.torch.cuda, "is_available", lambda: True)
+    monkeypatch.setattr(D, "_usable", lambda device: device != "cuda")
+    assert D.best_device() == "cpu"
+    monkeypatch.setattr(D, "_usable", lambda device: True)
+    assert D.best_device() == "cuda"
+    monkeypatch.setenv("DXAQC_DEVICE", "cpu")
+    assert D.best_device() == "cpu"

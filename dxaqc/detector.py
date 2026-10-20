@@ -1,4 +1,5 @@
 """Inference wrapper around the trained landmark models (models/kp_spine.pt, models/kp_hip.pt)."""
+import logging
 import os
 from pathlib import Path
 
@@ -8,14 +9,28 @@ import torch
 from . import kpmodel as K
 
 
+def _usable(device):
+    """A tiny operation actually runs on the device. An unlicensed vGPU reports CUDA as available, yet every
+    operation on it fails with "operation not supported" — the service must not die on such a host."""
+    try:
+        return (torch.ones(2, device=device) * 2).sum().item() == 4
+    except Exception:
+        return False
+
+
 def best_device():
-    """DXAQC_DEVICE=cpu|cuda|mps overrides auto-detection (e.g. to measure the CPU-only configuration)."""
+    """DXAQC_DEVICE=cpu|cuda|mps overrides auto-detection (e.g. to measure the CPU-only configuration).
+    Auto-detection falls back to the CPU when an accelerator is visible but does not work."""
     forced = os.environ.get("DXAQC_DEVICE")
     if forced:
         return forced
-    if torch.backends.mps.is_available():
+    if torch.backends.mps.is_available() and _usable("mps"):
         return "mps"
-    return "cuda" if torch.cuda.is_available() else "cpu"
+    if torch.cuda.is_available():
+        if _usable("cuda"):
+            return "cuda"
+        logging.getLogger(__name__).warning("CUDA видна, но не работает (например, vGPU без лицензии) — считаю на процессоре")
+    return "cpu"
 
 
 class KeypointDetector:
