@@ -46,7 +46,7 @@
 
 Все 252 снимка размечены полуавтоматически, см. [tools/autolabel/README.md](../tools/autolabel/README.md).
 83 снимка помечены «сомневаюсь»: их стоит проверить глазами в инструменте («Импорт JSON»
-→ `data/train/keypoints_claude_export.json`).
+→ `data/train/keypoints_auto_export.json`).
 
 ## Процесс
 

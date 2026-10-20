@@ -166,7 +166,7 @@ function openModal(i) {
   if (kind(it) === 'spine') meas = `<tr><td>Наклон оси</td><td>${fmt(v.m.tilt, 1)}° (порог ${TILT_T}°)</td></tr><tr><td>Крылья таза</td><td>${v.m.crests ? 'оба в кадре' : 'не оба в кадре'}</td></tr><tr><td>Рамок</td><td>${v.m.boxes}</td></tr>`;
   else if (!v.skip) meas = `<tr><td>Поле сверху</td><td>${fmt(v.m.margins.top)} мм</td></tr><tr><td>Поле снизу</td><td>${fmt(v.m.margins.bottom)} мм</td></tr><tr><td>Поле сбоку</td><td>${fmt(v.m.margins.lateral)} мм</td></tr><tr><td>Малый вертел</td><td>${LT[v.r.choice] || '—'}</td></tr>`;
   const lab = v.types.map(k => `<tr><td>${NAMES[k]}</td><td>эксперт: ${v.lab[k] ? '<b style="color:var(--bad)">нарушение</b>' : 'норма'} · правило: ${v.m.rule[k] ? 'нарушение' : 'норма'}</td></tr>`).join('');
-  const editor = `../annotator/index.html?load=${encodeURIComponent('../../data/train/keypoints_claude_export.json')}&id=${it.id}`;
+  const editor = `../annotator/index.html?load=${encodeURIComponent('../../data/train/keypoints_auto_export.json')}&id=${it.id}`;
   $('side').innerHTML = `<h2>${it.id}</h2><div class="chips">${chips(v)}</div>
     <div class="btns"><a href="${editor}" target="_blank"><button>Открыть в редакторе ↗</button></a><button onclick="closeModal()">Закрыть</button></div>
     <table>${lab}</table>${v.lab.comment ? `<p><b>Комментарий эксперта:</b> ${v.lab.comment}</p>` : ''}
@@ -187,7 +187,7 @@ $('fSearch').addEventListener('input', render);
 
 async function init() {
   let file = {};
-  try { file = (await (await fetch('../../data/train/keypoints_claude_export.json')).json()).annotations || {}; } catch (e) { console.warn(e); }
+  try { file = (await (await fetch('../../data/train/keypoints_auto_export.json')).json()).annotations || {}; } catch (e) { console.warn(e); }
   let local = {};
   try { local = JSON.parse(localStorage.getItem('dxa_keypoints_v1') || '{}'); } catch (e) {}
   // Same origin as the editor: its newer edits override the exported file.

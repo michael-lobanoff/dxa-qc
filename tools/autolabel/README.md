@@ -1,6 +1,6 @@
 # Полуавтоматическая разметка ключевых точек (как делалась v2)
 
-Результат: `data/train/keypoints_claude_export.json` (формат инструмента, открывается через «Импорт JSON»)
+Результат: `data/train/keypoints_auto_export.json` (формат инструмента, открывается через «Импорт JSON»)
 и `data/train/keypoints.json` (после `scripts/merge_keypoints.py`).
 
 Процесс, выполнялся вслепую, без экспертных меток:
