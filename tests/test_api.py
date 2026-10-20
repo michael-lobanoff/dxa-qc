@@ -92,11 +92,15 @@ def test_predict_folder_rejects_outside_paths():
 
 
 def test_web_interface_is_served_and_offline():
-    """The page loads from the package and references no external host (ТЗ 3.2: works without internet)."""
+    """The page loads from the package and references no external host (ТЗ 3.2: works without internet).
+    The only outside address is a plain link to the repository README — it loads nothing by itself."""
     r = client.get("/")
     assert r.status_code == 200 and "Контроль качества денситометрии" in r.text
+    repo = 'href="https://github.com/michael-lobanoff/dxa-qc#readme" target="_blank" rel="noopener noreferrer"'
+    assert repo in r.text
+    page = r.text.replace(repo, "").replace("http://localhost:8000", "")
     for marker in ("http://", "https://", "//cdn"):
-        assert marker not in r.text.replace("http://localhost:8000", ""), marker
+        assert marker not in page, marker
 
 
 @needs_samples
