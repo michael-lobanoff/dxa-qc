@@ -206,7 +206,7 @@ models/           веса и модели: kp_spine*.pt, kp_hip*.pt (ансам
 | CPU | 2 ядра x86-64 / arm64 | 4+ ядер |
 | RAM | 2 ГБ | 4 ГБ |
 | GPU | не нужен | любой CUDA-GPU (ускоряет в 2–3 раза) |
-| Диск | 1 ГБ (CPU-сборка) | 6 ГБ (сборка с CUDA) |
+| Диск | 3 ГБ (образ CPU-сборки — 1.8 ГБ) | 8 ГБ (сборка с CUDA) |
 
 Зависимости зафиксированы по версиям в [requirements.txt](requirements.txt); базовый образ —
 `python:3.12.2-slim`. Основное: PyTorch 2.14 (CPU-сборка), OpenCV, scikit-learn, pydicom 3.0
