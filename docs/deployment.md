@@ -29,11 +29,13 @@
 docker build --platform linux/amd64 -t dxa-qc .
 ```
 
-Образ — 1.69 ГБ. Две особенности, заложенные в `Dockerfile`:
+Образ — 1.8 ГБ. Две особенности, заложенные в `Dockerfile`:
 
 - torch ставится **CPU-сборкой** с `https://download.pytorch.org/whl/cpu`. Обычное колесо тянет весь
   стек CUDA (~2.5 ГБ) — сборка от этого падала по таймауту, а сервису GPU не нужен. Для сборки под
-  GPU замените индекс на `https://download.pytorch.org/whl/cu124`;
+  GPU — `DXAQC_TORCH_INDEX=https://download.pytorch.org/whl/cu126 ./run.sh build` и запуск с
+  `DXAQC_GPUS=all ./run.sh serve` (нужен NVIDIA Container Toolkit; для torch 2.14 есть cu126 и cu130,
+  cu124 нет);
 - `--platform linux/amd64` указывается явно, если собираете на Apple Silicon, иначе получится образ
   под arm64, который не запустится на x86-сервере.
 

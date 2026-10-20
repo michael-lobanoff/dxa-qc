@@ -7,10 +7,16 @@
 #   ./run.sh serve [<порт>]             веб-интерфейс и HTTP API (по умолчанию 8000)
 #   ./run.sh check                      проверить сборку без медицинских данных
 #   ./run.sh test                       прогнать на тестовых файлах организаторов (если они есть локально)
+#   С видеокартой (нужен NVIDIA Container Toolkit):
+#     DXAQC_TORCH_INDEX=https://download.pytorch.org/whl/cu126 ./run.sh build
+#     DXAQC_GPUS=all ./run.sh serve        (так же predict и check)
 set -eu
 
 IMAGE="${DXAQC_IMAGE:-dxa-qc}"
 PLATFORM="${DXAQC_PLATFORM:-linux/amd64}"
+# --gpus для docker run, если задан DXAQC_GPUS (например, all); без него — процессор, как раньше
+GPU_ARGS=""
+if [ -n "${DXAQC_GPUS:-}" ]; then GPU_ARGS="--gpus $DXAQC_GPUS"; fi
 ROOT="$(cd "$(dirname "$0")" && pwd)"
 
 die() { echo "Ошибка: $*" >&2; exit 1; }
@@ -19,7 +25,11 @@ ensure_image() { have_image || { echo "Образ $IMAGE не найден, со
 
 build() {
     command -v docker >/dev/null 2>&1 || die "Docker не установлен"
-    docker build --platform "$PLATFORM" -t "$IMAGE" "$ROOT"
+    if [ -n "${DXAQC_TORCH_INDEX:-}" ]; then
+        docker build --platform "$PLATFORM" --build-arg TORCH_INDEX="$DXAQC_TORCH_INDEX" -t "$IMAGE" "$ROOT"
+    else
+        docker build --platform "$PLATFORM" -t "$IMAGE" "$ROOT"
+    fi
     echo "Готово: образ $IMAGE"
 }
 
@@ -36,7 +46,7 @@ predict() {
     mkdir -p "$OUT"
     OUT="$(cd "$OUT" && pwd)"
     ensure_image
-    docker run --rm --platform "$PLATFORM" \
+    docker run --rm --platform "$PLATFORM" $GPU_ARGS \
         -v "$IN":/data:ro -v "$OUT":/out \
         "$IMAGE" "$TARGET" --out /out/results.csv --vis /out/vis
     echo "Результаты: $OUT/results.csv (и .xlsx), визуализация: $OUT/results_vis.zip"
@@ -46,13 +56,13 @@ serve() {
     PORT="${1:-8000}"
     ensure_image
     echo "Веб-интерфейс: http://localhost:$PORT"
-    docker run --rm --platform "$PLATFORM" -p "$PORT":8000 \
+    docker run --rm --platform "$PLATFORM" $GPU_ARGS -p "$PORT":8000 \
         --entrypoint uvicorn "$IMAGE" dxaqc.api:app --host 0.0.0.0 --port 8000
 }
 
 selfcheck() {
     ensure_image
-    docker run --rm --platform "$PLATFORM" --entrypoint python "$IMAGE" scripts/selfcheck.py
+    docker run --rm --platform "$PLATFORM" $GPU_ARGS --entrypoint python "$IMAGE" scripts/selfcheck.py
 }
 
 selftest() {
@@ -68,5 +78,5 @@ case "$CMD" in
     predict) predict "$@" ;;
     serve)   serve "$@" ;;
     test)    selftest ;;
-    *)       sed -n '2,8p' "$0" | sed 's/^# \{0,1\}//' ;;
+    *)       sed -n '2,12p' "$0" | sed 's/^# \{0,1\}//' ;;
 esac
